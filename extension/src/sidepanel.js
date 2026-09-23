@@ -21,6 +21,16 @@ const statusEl = document.getElementById("status");
 const recordEl = document.getElementById("record");
 const metaEl = document.getElementById("meta");
 const quoteEl = document.getElementById("quote");
+const quoteBoxEl = document.getElementById("quoteBox");
+const quoteCountEl = document.getElementById("quoteCount");
+const quoteToggleBtn = document.getElementById("quoteToggle");
+const quoteEditBtn = document.getElementById("quoteEdit");
+const quoteInputEl = document.getElementById("quoteInput");
+const quoteActionsEl = document.getElementById("quoteActions");
+const quoteReinterpretBtn = document.getElementById("quoteReinterpret");
+const quoteCancelBtn = document.getElementById("quoteCancel");
+// 折叠阈值：超过这么多字符才给「展开」。太短的内容套一层展开反而啰嗦。
+const QUOTE_CLAMP_CHARS = 160;
 const answerEl = document.getElementById("answer");
 const emptyEl = document.getElementById("empty");
 const optionsFrame = document.getElementById("optionsFrame");
@@ -110,6 +120,80 @@ function recordKey(record) {
   return `${record?.at ?? ""}|${record?.url ?? ""}`;
 }
 
+// ---- 选区原文：折叠与就地编辑 ----
+
+let quoteExpanded = false;
+let quoteEditing = false;
+// 编辑框里的文字是否被改过（用来决定「用这段重新解读」是否可点）
+let quoteDirty = false;
+
+/** 折叠态只在内容确实超出时才启用 —— 短文本不套展开按钮。 */
+function applyQuoteClamp() {
+  const text = quoteEl.textContent ?? "";
+  const longEnough = text.length > QUOTE_CLAMP_CHARS;
+  quoteEl.dataset.clamped = !quoteExpanded && longEnough ? "1" : "0";
+  quoteToggleBtn.hidden = !longEnough || quoteEditing;
+  quoteToggleBtn.textContent = quoteExpanded ? "收起" : "展开";
+  quoteCountEl.textContent = text.length > 0 ? `${text.length} 字` : "";
+}
+
+function setQuoteEditing(on) {
+  quoteEditing = on;
+  quoteInputEl.hidden = !on;
+  quoteEl.hidden = on;
+  quoteActionsEl.hidden = !on;
+  quoteEditBtn.hidden = on;
+  if (on) {
+    quoteInputEl.value = currentRecord?.text ?? "";
+    quoteDirty = false;
+    quoteReinterpretBtn.disabled = true;
+    // 编辑时先把焦点放进去，省一次点击。
+    quoteInputEl.focus();
+  }
+  applyQuoteClamp();
+}
+
+/** 侧栏里改完原文，用改过的内容重新解读一遍（划词常常选得不精确）。 */
+async function reinterpretEdited() {
+  const text = quoteInputEl.value.trim();
+  if (text === "" || currentRecord === null) return;
+  const { url, title } = currentRecord;
+  setQuoteEditing(false);
+  showPending();
+  try {
+    await chrome.runtime.sendMessage({
+      type: "interpret",
+      text,
+      url: url ?? "",
+      title: title ?? "",
+      // 结果要回本面板；background 的兜底闸门据此判断「侧栏开着才解读」。
+      target: "sidebar",
+    });
+  } catch (error) {
+    hidePending();
+    answerEl.dataset.kind = "error";
+    answerEl.textContent = `解读失败：${String(error?.message ?? error)}`;
+  }
+}
+
+quoteToggleBtn.addEventListener("click", () => {
+  quoteExpanded = !quoteExpanded;
+  applyQuoteClamp();
+});
+quoteEditBtn.addEventListener("click", () => setQuoteEditing(true));
+quoteCancelBtn.addEventListener("click", () => setQuoteEditing(false));
+quoteReinterpretBtn.addEventListener("click", () => {
+  void reinterpretEdited();
+});
+quoteInputEl.addEventListener("input", () => {
+  const edited = quoteInputEl.value.trim();
+  quoteDirty = edited !== (currentRecord?.text ?? "").trim();
+  // 只有真改过才允许重新解读 —— 否则等于重复问一遍同一个问题。
+  quoteReinterpretBtn.disabled = !quoteDirty || edited === "";
+  // 字数跟着改动走，否则头部的数字会在编辑期间变成过期的。
+  quoteCountEl.textContent = quoteInputEl.value.length > 0 ? `${quoteInputEl.value.length} 字` : "";
+});
+
 async function renderRecord(record) {
   if (record === null || record === undefined) return;
   currentRecord = record;
@@ -124,6 +208,10 @@ async function renderRecord(record) {
   metaEl.textContent = [time, record.title || record.url].filter((s) => s !== "").join(" · ");
   metaEl.title = record.url ?? "";
   quoteEl.textContent = record.text ?? "";
+  // 换了一条记录：折叠与编辑状态都归零，否则新内容会继承上一条的展开/编辑态。
+  quoteExpanded = false;
+  setQuoteEditing(false);
+  applyQuoteClamp();
 
   if (record.ok === true) {
     answerEl.dataset.kind = "ok";

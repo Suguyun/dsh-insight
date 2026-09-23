@@ -23,6 +23,12 @@ The same text is only interpreted once. When you keep selecting, newer selection
 
 **When the side panel is closed, the two sidebar-only modes above do not interpret at all** — and no badge appears either. There is nowhere to show the result, so firing a model call would be pointless. The two page-card modes are unaffected: their result is drawn on the page and never needed the side panel.
 
+### The selected text is collapsible — and editable
+
+The "selection" block in the panel is folded to ~5 lines past 160 characters (with a fade), with an expand toggle; even expanded it stays capped so it cannot push the answer off-screen.
+
+Selections are often imprecise — hit **Edit**, fix the text, then **re-interpret with this text**. The button stays disabled until you actually change something.
+
 ### Native multi-turn follow-up in the side panel
 
 An input box sits right below the answer (`Enter` to send, `Shift+Enter` for a newline). Follow-ups are real multi-turn requests carrying the last 16 turns (4000 chars each) — no jumping elsewhere to start a new session.

@@ -25,7 +25,24 @@
 
       <article id="record" hidden>
         <div id="meta"></div>
-        <blockquote id="quote"></blockquote>
+
+        <!-- 选区原文：长选区默认折叠（否则一条记录能占满整屏），可展开；
+             也可以就地改文字后用改过的内容重新解读 —— 划词常常选得不精确。 -->
+        <div id="quoteBox">
+          <div id="quoteHead">
+            <span id="quoteLabel">选区原文</span>
+            <span id="quoteCount"></span>
+            <button id="quoteToggle" class="mini" type="button" hidden>展开</button>
+            <button id="quoteEdit" class="mini" type="button">编辑</button>
+          </div>
+          <blockquote id="quote" data-clamped="0"></blockquote>
+          <textarea id="quoteInput" hidden spellcheck="false"></textarea>
+          <div id="quoteActions" hidden>
+            <button id="quoteReinterpret" class="mini primary" type="button">用这段重新解读</button>
+            <button id="quoteCancel" class="mini" type="button">取消</button>
+          </div>
+        </div>
+
         <div id="answer"></div>
 
         <!-- 追问讨论：就上面这条解读继续聊，原生多轮，不用跳到别处。 -->

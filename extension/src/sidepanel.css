@@ -78,6 +78,14 @@ button {
   transition: background-color 0.12s, border-color 0.12s, color 0.12s;
 }
 
+/* 全局兜底：`hidden` 属性的默认 display:none 会被任何 display 声明覆盖，
+   所以必须显式压住。少了这一条，凡是自己设了 display 的元素（flex/grid/block）
+   一加 hidden 就会「藏不住」—— 本文件里原先散着 5 处逐元素兜底，正是同一个坑
+   踩了 5 次；这里一次性解决，也顺带修好了漏配的 #empty。 */
+[hidden] {
+  display: none !important;
+}
+
 /* ---- 顶栏 ---- */
 
 #bar {
@@ -193,7 +201,6 @@ button {
   padding: var(--sp-3);
 }
 
-#insight[hidden] { display: none; }
 
 #insight::-webkit-scrollbar { width: 10px; }
 
@@ -227,7 +234,6 @@ button {
   box-shadow: var(--shadow-1);
 }
 
-#pending[hidden] { display: none; }
 
 /* 转圈，而不是假进度条：请求本身没有可用的百分比。等待秒数见 #pendingText。 */
 .spinner {
@@ -298,29 +304,118 @@ button {
   text-overflow: ellipsis;
 }
 
-/* 选区原文：内嵌面板 + 说明标签 */
-#quote {
+/* ---- 选区原文：可折叠 + 可就地编辑 ---- */
+
+#quoteBox {
   margin: 0 0 var(--sp-3);
-  padding: var(--sp-3);
   border: 1px solid var(--panel-border);
   border-radius: var(--radius);
   background: var(--tint-inset);
-  color: var(--panel-quote);
-  font-size: 0.95em;
-  max-height: 24vh;
-  overflow: auto;
-  white-space: pre-wrap;
-  word-break: break-word;
+  overflow: hidden;
 }
 
-#quote::before {
-  content: "选区原文";
-  display: block;
-  margin-bottom: var(--sp-1);
+#quoteHead {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border-bottom: 1px solid var(--panel-border);
+}
+
+#quoteLabel {
   color: var(--panel-muted);
   font-size: var(--label-size);
   font-weight: 600;
   letter-spacing: 0.06em;
+}
+
+#quoteCount {
+  color: var(--panel-muted);
+  font-size: var(--label-size);
+}
+
+/* 把两个小按钮推到右侧 */
+#quoteToggle { margin-left: auto; }
+
+/* 只有「编辑」可见时它才需要顶到右边 */
+#quoteToggle[hidden] + #quoteEdit { margin-left: auto; }
+
+#quote {
+  margin: 0;
+  padding: var(--sp-3);
+  color: var(--panel-quote);
+  font-size: 0.95em;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* 折叠态：只露几行，底部渐隐提示「还有内容」。用 mask 而不是滚动条 ——
+   窄侧栏里出现第二个滚动区域非常难用。 */
+#quote[data-clamped="1"] {
+  max-height: 7.5em;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(#000 62%, transparent);
+  mask-image: linear-gradient(#000 62%, transparent);
+}
+
+/* 展开态也要有上限：超长选区否则会把「解读」整块推到屏幕外，反而更难读。
+   超出部分内部滚动 —— 这时是用户主动要求看全文，出现滚动条可以接受。 */
+#quote[data-clamped="0"] {
+  max-height: 60vh;
+  overflow: auto;
+}
+
+#quoteInput {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 7em;
+  max-height: 45vh;
+  padding: var(--sp-3);
+  border: 0;
+  outline: none;
+  resize: vertical;
+  background: transparent;
+  color: var(--panel-quote);
+  font: inherit;
+  font-size: 0.95em;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+#quoteActions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 0 var(--sp-3) var(--sp-3);
+}
+
+/* 头部与操作区里的小按钮 */
+.mini {
+  padding: 2px 9px;
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--panel-muted);
+  font-size: var(--label-size);
+  cursor: pointer;
+}
+
+.mini:hover:not(:disabled) {
+  background: var(--tint-inset);
+  color: var(--panel-text, inherit);
+}
+
+.mini.primary {
+  border-color: color-mix(in srgb, var(--panel-accent) 40%, var(--panel-border));
+  background: color-mix(in srgb, var(--panel-accent) 14%, transparent);
+  color: var(--panel-accent);
+  font-weight: 600;
+}
+
+.mini.primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--panel-accent) 22%, transparent);
 }
 
 /* 解读正文：标签由 ::before 提供（JS 会 replaceChildren，不能用真实子节点） */
@@ -441,7 +536,6 @@ button {
   border-top: 1px solid var(--panel-border);
 }
 
-#thread[hidden] { display: none; }
 
 #thread::before {
   content: "追问";
@@ -494,7 +588,6 @@ button {
   box-shadow: var(--shadow-1);
 }
 
-#askForm[hidden] { display: none; }
 
 #askForm:focus-within {
   border-color: var(--panel-accent);
@@ -560,7 +653,6 @@ button {
   background: var(--panel-bg);
 }
 
-#optionsFrame[hidden] { display: none; }
 
 /* ---- 无障碍：减少动态效果 ---- */
 

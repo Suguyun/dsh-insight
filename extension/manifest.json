@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "dsh-insight",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEApF93Ws1JVWdeIpXiIinHTOZS/SJEcD9+xi9dTR9Hkd9tNbrkTA9P4uK8cfwHqjt0bCTOtsSxQ4b97yxbvaR4IbZQ9GK9qW7P+GB0gRbYN0sbsugWxZeMzZG2zZBl9rZQTEYlHB/BiQRccUjhC1ZrH7qb7/Tiy2+tZfOndhnFQAHzvcgT4xD2HV5XjfWEpJcnLXUjrGkdctSauhsG4bwzWUSa+jriB7yfnMDryP/or29NTu9xVqJdT0u1h8hy/oTu1Zt4l1+K20QAJCyrwMCMzNTeS/Gh+P9UFmnks6/LFxhX3VdVNEAyc10bnmb9WPPSh5ZgDdryizTOU0/w6RTiyQIDAQAB",
   "description": "DeepSeek Harness (dsh) 浏览器伴侣：划词即解读、侧栏多轮追问、Markdown 渲染，并让 dsh 智能体读取当前页面、抓取网络请求、驱动浏览器。",
   "minimum_chrome_version": "118",
