@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>dsh-insight</title>
+    <link rel="stylesheet" href="sidepanel.css" />
+  </head>
+  <body>
+    <header id="bar">
+      <span id="title">dsh-insight</span>
+      <span id="status" data-kind=""></span>
+      <button id="stopCapture" title="手动停止当前标签页的 HTTP 抓包">停止抓包</button>
+      <button id="settings" title="在本面板里直接调整设置">设置</button>
+    </header>
+
+    <!-- 划词解读面板：本面板自己渲染，不经过 iframe，所以不依赖 dsh 的鉴权与 RPC。 -->
+    <section id="insight">
+      <!-- 正在解读新的内容：一次请求要十几秒，必须让用户看见「它在动」 -->
+      <div id="pending" hidden>
+        <span class="spinner" aria-hidden="true"></span>
+        <span id="pendingText">正在解读…</span>
+      </div>
+
+      <!-- 用法提示已并进下面的空状态（#empty），不再单独占一块 -->
+
+      <article id="record" hidden>
+        <div id="meta"></div>
+        <blockquote id="quote"></blockquote>
+        <div id="answer"></div>
+
+        <!-- 追问讨论：就上面这条解读继续聊，原生多轮，不用跳到别处。 -->
+        <div id="thread" hidden></div>
+        <form id="askForm" hidden>
+          <textarea
+            id="ask"
+            rows="2"
+            placeholder="就这条解读继续追问…"
+          ></textarea>
+          <button id="askSend" type="submit">追问</button>
+        </form>
+      </article>
+
+      <div id="empty">
+        <p class="empty-title">还没有解读记录</p>
+        <p class="empty-sub">在任意网页上选中一段文字，解读结果会出现在这里；也可以在下面继续追问。</p>
+      </div>
+    </section>
+
+    <!-- 设置：把扩展选项页（options.html）内嵌进来，同源 iframe，省得每次都跳到
+         独立标签页。按需加载 —— 第一次点「设置」才去载入它。 -->
+    <iframe id="optionsFrame" src="about:blank" hidden></iframe>
+    <script type="module" src="sidepanel.js"></script>
+  </body>
+</html>

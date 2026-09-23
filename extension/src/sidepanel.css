@@ -1,0 +1,574 @@
+/* dsh-insight 侧栏样式。
+ *
+ * 设计约束（改之前先读这段）：
+ *   1. 配色与字号全部走 CSS 变量，由 appearance.js 按用户在设置页里选的背景色和
+ *      字号写入（浅底自动配深字）。下面 :root 是默认外观，保证脚本执行前第一帧
+ *      就是对的，不会闪。
+ *   2. 层次色（hover 底色、内嵌面板、聚焦环、阴影）一律由 --panel-* 派生，不再
+ *      让 JS 多维护一份。加新颜色时优先派生，别写死色值 —— 否则换底色就花。
+ *   3. JS 依赖的选择器不能改：#insight[data-busy]、#status[data-kind]、
+ *      .ask-q / .ask-a / .ask-a.pending / .spinner，以及各元素的 hidden 开关。
+ */
+
+:root {
+  /* ---- 默认外观（appearance.js 会覆盖到 --panel-font-size 为止）---- */
+  --panel-bg: #0d1117;
+  --panel-fg: #e6edf3;
+  --panel-surface: #161b22;
+  --panel-border: #30363d;
+  --panel-muted: #8b949e;
+  --panel-quote: #adbac7;
+  --panel-accent: #8b85f0;
+  --panel-error: #f85149;
+  --panel-ok: #7ee787;
+  --panel-warn: #d29922;
+  --panel-orange: #f0883e;
+  --panel-orange-border: #9e6a03;
+  --panel-font-size: 13px;
+
+  /* ---- 派生量 ---- */
+  --panel-code-size: calc(var(--panel-font-size) - 1px);
+  --label-size: calc(var(--panel-font-size) - 2px);
+
+  /* 间距与圆角：统一节奏，避免满屏 7px/9px/10px 这种随手值 */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --radius-sm: 6px;
+  --radius: 10px;
+
+  /* 由前景色派生，深浅底色都自适应 */
+  --tint-hover: color-mix(in srgb, var(--panel-fg) 8%, transparent);
+  --tint-inset: color-mix(in srgb, var(--panel-fg) 4%, transparent);
+  --tint-line: color-mix(in srgb, var(--panel-fg) 14%, transparent);
+  --ring: color-mix(in srgb, var(--panel-accent) 45%, transparent);
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.16);
+  --shadow-2: 0 4px 14px rgba(0, 0, 0, 0.2);
+}
+
+/* ---- 基底 ---- */
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--panel-bg);
+  color: var(--panel-fg);
+  font-family: system-ui, "Segoe UI", "Microsoft YaHei", sans-serif;
+  font-size: var(--panel-font-size);
+  line-height: 1.6;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+}
+
+:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+  border-radius: var(--radius-sm);
+}
+
+button {
+  font-family: inherit;
+  transition: background-color 0.12s, border-color 0.12s, color 0.12s;
+}
+
+/* ---- 顶栏 ---- */
+
+#bar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex: none;
+  padding: 7px 10px;
+  background: var(--panel-surface);
+  border-bottom: 1px solid var(--panel-border);
+}
+
+/* 品牌标识：直接用扩展自己的图标（Chrome 官方指引明确要求侧栏与扩展的
+   logo / 配色一致），而不是我另画一个色块。 */
+#title {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  flex: none;
+}
+
+#title::before {
+  content: "";
+  flex: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  background: url("../icons/icon-32.png") center / contain no-repeat;
+}
+
+/* 状态：一个点 + 一段文字。点用 currentColor，所以三种状态自动跟着变色。 */
+#status {
+  flex: 1;
+  min-width: 0;
+  display: inline-block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 0.85em;
+  color: var(--panel-muted);
+}
+
+#status::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  vertical-align: middle;
+  opacity: 0.9;
+}
+
+/* 还没拿到状态时别留一个孤零零的灰点 */
+#status:empty::before { display: none; }
+
+#status[data-kind="ok"] { color: var(--panel-ok); }
+#status[data-kind="warn"] { color: var(--panel-warn); }
+#status[data-kind="error"] { color: var(--panel-error); }
+
+#bar button {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border: 1px solid var(--panel-border);
+  border-radius: 999px;
+  background: var(--panel-bg);
+  color: var(--panel-fg);
+  font-size: 0.85em;
+  line-height: 1.6;
+  cursor: pointer;
+}
+
+#bar button:hover {
+  background: var(--tint-hover);
+  border-color: var(--panel-accent);
+  color: var(--panel-accent);
+}
+
+#bar button:active {
+  transform: translateY(1px);
+}
+
+/* 「停止抓包」是个中断动作：用方块图标 + 暖色，和「设置」区分开 */
+#stopCapture::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  background: currentColor;
+}
+
+#stopCapture {
+  color: var(--panel-orange);
+  border-color: color-mix(in srgb, var(--panel-orange-border) 60%, var(--panel-border));
+}
+
+#stopCapture:hover {
+  color: var(--panel-orange);
+  border-color: var(--panel-orange);
+}
+
+/* ---- 面板主体 ---- */
+
+#insight {
+  flex: 1;
+  overflow: auto;
+  padding: var(--sp-3);
+}
+
+#insight[hidden] { display: none; }
+
+#insight::-webkit-scrollbar { width: 10px; }
+
+#insight::-webkit-scrollbar-track { background: transparent; }
+
+#insight::-webkit-scrollbar-thumb {
+  background: var(--tint-line);
+  border: 3px solid transparent;
+  background-clip: content-box;
+  border-radius: 999px;
+}
+
+#insight::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--panel-fg) 26%, transparent);
+  background-clip: content-box;
+}
+
+/* ---- 正在解读 ---- */
+
+#pending {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin: 0 0 var(--sp-3);
+  padding: 8px 11px;
+  border: 1px solid color-mix(in srgb, var(--panel-accent) 30%, var(--panel-border));
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--panel-accent) 8%, var(--panel-surface));
+  color: var(--panel-fg);
+  font-size: 0.92em;
+  box-shadow: var(--shadow-1);
+}
+
+#pending[hidden] { display: none; }
+
+/* 转圈，而不是假进度条：请求本身没有可用的百分比。等待秒数见 #pendingText。 */
+.spinner {
+  flex: none;
+  width: 13px;
+  height: 13px;
+  border: 2px solid color-mix(in srgb, var(--panel-fg) 18%, transparent);
+  border-top-color: var(--panel-accent);
+  border-radius: 50%;
+  animation: dsh-insight-spin 0.8s linear infinite;
+}
+
+#pendingText { color: var(--panel-muted); }
+
+@keyframes dsh-insight-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* 正在解读新内容时把上一条记录压暗：避免旧结果被误当成新结果。 */
+#insight[data-busy="1"] #record {
+  opacity: 0.4;
+  transition: opacity 0.15s;
+}
+
+/* ---- 空状态 ---- */
+
+/* 空状态：引导与「暂无内容」合并成一块，避免两个空状态叠加 */
+#empty {
+  margin: 0;
+  padding: var(--sp-4) var(--sp-3);
+  text-align: center;
+  color: var(--panel-muted);
+}
+
+#empty::before {
+  content: "";
+  display: block;
+  margin: 0 auto var(--sp-3);
+  width: 34px;
+  height: 34px;
+  border: 2px dashed var(--tint-line);
+  border-radius: 50%;
+}
+
+.empty-title {
+  margin: 0 0 var(--sp-1);
+  color: var(--panel-fg);
+  font-weight: 600;
+}
+
+.empty-sub {
+  margin: 0 auto;
+  max-width: 30em;
+  font-size: 0.95em;
+  line-height: 1.65;
+}
+
+/* ---- 记录 ---- */
+
+#record { margin: 0; }
+
+#meta {
+  margin: 0 0 var(--sp-2);
+  color: var(--panel-muted);
+  font-size: 0.85em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 选区原文：内嵌面板 + 说明标签 */
+#quote {
+  margin: 0 0 var(--sp-3);
+  padding: var(--sp-3);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius);
+  background: var(--tint-inset);
+  color: var(--panel-quote);
+  font-size: 0.95em;
+  max-height: 24vh;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+#quote::before {
+  content: "选区原文";
+  display: block;
+  margin-bottom: var(--sp-1);
+  color: var(--panel-muted);
+  font-size: var(--label-size);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+
+/* 解读正文：标签由 ::before 提供（JS 会 replaceChildren，不能用真实子节点） */
+#answer {
+  word-break: break-word;
+}
+
+#answer::before {
+  content: "解读";
+  display: block;
+  margin-bottom: var(--sp-2);
+  padding-bottom: var(--sp-1);
+  border-bottom: 1px solid var(--tint-line);
+  color: var(--panel-muted);
+  font-size: var(--label-size);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+
+#answer[data-kind="error"] { color: var(--panel-error); }
+
+#answer > :first-child { margin-top: 0; }
+#answer > :last-child { margin-bottom: 0; }
+
+/* ---- 解读正文里的 Markdown ---- */
+
+#answer p { margin: 0 0 0.7em; }
+
+#answer h1, #answer h2, #answer h3,
+#answer h4, #answer h5, #answer h6 {
+  margin: 1.1em 0 0.5em;
+  line-height: 1.35;
+  font-weight: 650;
+}
+#answer h1 { font-size: 1.3em; }
+#answer h2 { font-size: 1.18em; }
+#answer h3 { font-size: 1.06em; }
+#answer h4, #answer h5, #answer h6 {
+  font-size: 1em;
+  color: var(--panel-quote);
+}
+
+#answer ul, #answer ol {
+  margin: 0 0 0.7em;
+  padding-left: 1.4em;
+}
+#answer li { margin: 0.2em 0; }
+#answer li::marker { color: var(--panel-muted); }
+#answer li > p { margin: 0; }
+
+#answer a {
+  color: var(--panel-accent);
+  text-decoration-color: color-mix(in srgb, var(--panel-accent) 45%, transparent);
+  text-underline-offset: 2px;
+}
+#answer a:hover { text-decoration-color: currentColor; }
+
+#answer code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: var(--panel-code-size);
+  background: var(--panel-surface);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-sm);
+  padding: 0.08em 0.36em;
+}
+
+#answer pre {
+  margin: 0 0 0.7em;
+  padding: 10px 12px;
+  background: var(--panel-surface);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius);
+  overflow: auto;
+  box-shadow: var(--shadow-1);
+}
+
+/* 围栏代码块的语言标签，例如 python */
+#answer pre[data-lang]::before {
+  content: attr(data-lang);
+  display: block;
+  margin-bottom: var(--sp-2);
+  padding-bottom: var(--sp-1);
+  border-bottom: 1px solid var(--tint-line);
+  color: var(--panel-muted);
+  font-size: var(--label-size);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+#answer pre code {
+  background: none;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  font-size: var(--panel-code-size);
+  line-height: 1.55;
+  white-space: pre;
+}
+
+#answer blockquote {
+  margin: 0 0 0.7em;
+  padding: 2px 0 2px 10px;
+  border-left: 3px solid var(--tint-line);
+  color: var(--panel-quote);
+}
+
+#answer hr {
+  border: 0;
+  border-top: 1px solid var(--tint-line);
+  margin: 1em 0;
+}
+
+/* ---- 追问讨论 ---- */
+
+#thread {
+  margin-top: var(--sp-3);
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--panel-border);
+}
+
+#thread[hidden] { display: none; }
+
+#thread::before {
+  content: "追问";
+  display: block;
+  margin-bottom: var(--sp-2);
+  color: var(--panel-muted);
+  font-size: var(--label-size);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+
+/* 我提的问题：右侧色条 + 浅底，和解读正文明确分开 */
+.ask-q {
+  margin: 0 0 var(--sp-2);
+  padding: 6px 10px;
+  border-left: 3px solid var(--panel-accent);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: color-mix(in srgb, var(--panel-accent) 7%, transparent);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.ask-a {
+  margin: 0 0 var(--sp-3);
+  padding-left: 10px;
+  border-left: 3px solid transparent;
+}
+
+.ask-a.pending {
+  color: var(--panel-muted);
+  font-style: italic;
+}
+
+.ask-a[data-kind="error"] { color: var(--panel-error); }
+
+/* ---- 追问输入 ---- */
+
+/* 追问输入：grid 排两行 —— 文本框占满，第二行左边提示、右边按钮。
+   （::after 是“最后生成的子元素”，用 grid 显式定位才能排在按钮左边。） */
+#askForm {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-top: var(--sp-3);
+  padding: var(--sp-2) var(--sp-2) 6px;
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius);
+  background: var(--panel-surface);
+  box-shadow: var(--shadow-1);
+}
+
+#askForm[hidden] { display: none; }
+
+#askForm:focus-within {
+  border-color: var(--panel-accent);
+  box-shadow: 0 0 0 3px var(--ring);
+}
+
+#ask {
+  grid-column: 1 / -1;
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 2px 2px 0;
+  border: 0;
+  background: transparent;
+  color: var(--panel-fg);
+  font-family: inherit;
+  font-size: var(--panel-font-size);
+  line-height: 1.6;
+  resize: none; /* 面板本来就窄，浏览器自带的拖拽手柄只会碍眼 */
+}
+
+#ask:focus { outline: none; }
+
+#ask::placeholder { color: var(--panel-muted); }
+
+#askForm::after {
+  content: "Enter 发送 · Shift+Enter 换行";
+  grid-column: 1;
+  color: var(--panel-muted);
+  font-size: var(--label-size);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#askSend {
+  grid-column: 2;
+  padding: 4px 14px;
+  border: 1px solid color-mix(in srgb, var(--panel-accent) 40%, var(--panel-border));
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--panel-accent) 14%, transparent);
+  color: var(--panel-accent);
+  font-size: 0.92em;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+#askSend:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--panel-accent) 22%, transparent);
+}
+
+#askSend:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* ---- 内嵌设置页 ---- */
+
+#optionsFrame {
+  flex: 1;
+  border: 0;
+  width: 100%;
+  background: var(--panel-bg);
+}
+
+#optionsFrame[hidden] { display: none; }
+
+/* ---- 无障碍：减少动态效果 ---- */
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    /* 停掉旋转；等待秒数仍在走，所以「它在动」这件事依然可感知 */
+    animation: none;
+    border-top-color: var(--panel-accent);
+  }
+  * { transition: none !important; }
+}

@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>dsh-insight 设置</title>
+    <link rel="stylesheet" href="options.css" />
+  </head>
+  <body>
+    <h1>dsh-insight 设置</h1>
+
+    <section>
+      <h2>连接</h2>
+      <label for="dshUrl">dsh 网页界面地址</label>
+      <input id="dshUrl" type="text" placeholder="http://127.0.0.1:3080" />
+      <p class="hint">
+        运行中的 <code>dsh web</code> 地址。浏览器桥接连接到
+        <code>ws://该主机/dsh-insight/bridge</code>，「dsh 界面」按钮从该地址嵌入完整界面。
+      </p>
+    </section>
+
+    <section>
+      <h2>划词解读</h2>
+
+      <label for="label">浮标文字</label>
+      <input id="label" type="text" maxlength="12" placeholder="解读" />
+      <p class="hint">在网页上选中文字后旁边那个小按钮上的字。自动解读模式下用不到。</p>
+
+      <label for="mode">触发与展示</label>
+      <select id="mode">
+        <option value="click">选中后点浮标 · 结果弹在页面浮窗</option>
+        <option value="click-sidebar">选中后点浮标 · 结果只进侧边栏</option>
+        <option value="auto">划词即解读 · 结果弹在页面浮窗</option>
+        <option value="auto-sidebar">划词即解读 · 结果只进侧边栏（页面不出现任何东西）</option>
+      </select>
+      <p class="hint">
+        自动模式在停手约 0.45 秒后发请求，同一段文字只解读一次。「只进侧边栏」
+        会关掉页面里的浮窗，结果只在扩展侧栏显示。改完点「保存」生效。
+      </p>
+
+      <label for="position">浮窗位置</label>
+      <select id="position">
+        <option value="follow">跟随选区</option>
+        <option value="fixed">固定在右下角</option>
+      </select>
+      <p class="hint">固定在右下角后，浮标与浮窗都钉在同一处，读长文时不会随选区乱跑。</p>
+
+      <label for="preset">解读口径</label>
+      <select id="preset"></select>
+      <p class="hint">
+        决定「解读」到底是什么意思。内置口径也可以直接改：保存后会记成你自己的一份
+        （下拉里标「已修改」），host 那边的原文不动，随时能撤销。
+      </p>
+
+      <label for="presetName">口径名称</label>
+      <input id="presetName" type="text" maxlength="20" placeholder="给自定义口径起个名字" />
+      <p class="hint">只有自定义口径需要名字；选到内置口径时这一项是灰的。</p>
+
+      <label for="system">口径内容（system prompt）</label>
+      <textarea id="system" rows="12" spellcheck="false"></textarea>
+      <div class="row">
+        <span id="count" class="hint"></span>
+        <span id="saved"></span>
+      </div>
+
+      <div class="row">
+        <button id="save">保存</button>
+        <button id="newPreset" class="secondary" type="button">＋ 新建口径</button>
+        <button id="deletePreset" class="secondary" type="button">删除此口径</button>
+        <button id="revertPreset" class="secondary" type="button">恢复内置文案</button>
+      </div>
+      <p class="hint" id="status"></p>
+
+      <div class="row">
+        <button id="reset" class="secondary" type="button">全部恢复默认</button>
+      </div>
+    </section>
+
+    <section>
+      <h2>外观</h2>
+
+      <label for="bg">侧栏背景颜色</label>
+      <div class="row">
+        <input id="bg" type="color" />
+        <button id="bgReset" class="secondary" type="button">恢复默认</button>
+      </div>
+      <p class="hint">
+        只影响「划词解读」面板。正文、代码块与边框会按底色的深浅自动配色
+        （浅底配深字、深底配浅字），不用自己调一堆颜色。改动即时生效。
+      </p>
+
+      <label for="fontSize">正文字号</label>
+      <div class="row">
+        <input id="fontSize" type="range" />
+        <span id="fontSizeValue" class="hint"></span>
+      </div>
+      <p class="hint">代码块与标题按比例一起缩放。改动即时生效。</p>
+
+      <div id="preview" class="preview">
+        <p>预览：<strong>加粗</strong>、<em>斜体</em>、<code>行内代码</code>。</p>
+        <pre><code>def get_weather(city: str) -> str:
+    return f"It's always sunny in {city}!"</code></pre>
+      </div>
+    </section>
+
+    <script type="module" src="options.js"></script>
+  </body>
+</html>

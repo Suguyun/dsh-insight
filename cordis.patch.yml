@@ -1,0 +1,60 @@
+# dsh-insight bundle patch
+#
+# 当本包出现在某个 dsh profile 的 `dsh.profile.bundles` 里时应用
+# （例如：dsh plugin --profile web add dsh-insight）。
+#
+# 每一行都用 id 寻址，因此你自己的 profile cordis.patch.yml 可以按 id
+# 覆盖配置或停用任何一行。`name` 是本包的子路径（见 package.json 的 exports）。
+#
+#   dsh-insight-bridge         扩展 ↔ dsh 的 WebSocket 桥接（路由 /dsh-insight/bridge，
+#                              对外提供 dshInsightBridge 服务）
+#   dsh-insight-browser-tools  注册 browser_* 工具，让智能体能读页面/点击/抓包
+#   dsh-insight-selection      划词解读路由 POST /dsh-insight（侧栏解读的宿主半边）
+#   dsh-insight-page-injector  把「当前页面」自动注入最近活跃会话 —— 默认不挂载，
+#                              见下方说明
+- insert:
+    - id: dsh-insight-bridge
+      name: 'dsh-insight/host/bridge.js'
+
+    # redactCredentials 默认 true；设为 false 可抓取未脱敏的原始流量
+    # （见 host/redact.js）。只建议在可信的本机调试场景下这么做。
+    # 取消下面两行注释即可修改：
+    - id: dsh-insight-browser-tools
+      name: 'dsh-insight/host/browser-tools.js'
+      # config:
+      #   redactCredentials: false
+
+    # 划词解读的宿主半边：注册精确路由 POST /dsh-insight。
+    # 扩展的「划词即解读」功能依赖它；不挂这一行，划词会直接失败。
+    - id: dsh-insight-selection
+      name: 'dsh-insight/host/insight.js'
+
+    # ── 页面自动注入：默认关闭 ────────────────────────────────────────────
+    #
+    # 这一段默认是注释掉的，这是有意的，不是漏写。
+    #
+    # 它会把桥接推来的页面正文当作常驻用户消息，反复塞进「最近活跃会话」。
+    # 页面上限虽已收紧，但这个行为有两个真实代价：
+    #   1) 隐私：你浏览的任何页面正文都会进模型上下文；
+    #   2) 上下文膨胀：正文随每次切标签/导航累积。特别地，当活动标签页正是
+    #      dsh 自己的会话界面时，正文就是整段对话，而对话里又含有先前注入的
+    #      「当前页面」消息 —— 于是自我复制、逐轮放大，很容易把上下文顶爆。
+    #      （上游 1,000,000 字符的旧上限下，实测 80 次注入 ≈ 246 万字符，
+    #        直接把 104 万 token 的上下文顶到 150 万而触发 400。）
+    #
+    # 要用的话，需要**两处一起开**，只开一处会静默空转（生产端与消费端
+    # 互不感知，不报错）：
+    #   1) 这里：取消下面两行注释，把注入器挂回来；
+    #   2) 扩展侧：打开页面快照推送开关
+    #        chrome.storage.local.set({ insight_autopush: true })
+    #      （默认关，改完即时生效。）
+    #
+    # 本仓库的实现已是有界版本：单次最多 4000 字符、正文里出现注入标记
+    # （自身回声）就整条跳过、单会话累计 60000 字符封顶。注意累计计数是
+    # 进程内内存态，dsh 重启或插件重载会清零。
+    #
+    # - id: dsh-insight-page-injector
+    #   name: 'dsh-insight/host/page-injector.js'
+    #   config:
+    #     maxInjectChars: 4000
+    #     maxSessionInjectChars: 60000
