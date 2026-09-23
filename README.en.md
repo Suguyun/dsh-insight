@@ -97,14 +97,16 @@ Download `dsh-insight-<version>.zip` from [Releases](https://github.com/Suguyun/
 npx github:Suguyun/dsh-insight install
 ```
 
-It copies `extension/` to a stable per-user directory and prints the path.
+It copies the extension to a stable per-user directory and prints the path.
 Note: this package is **not published to npm**, so the `github:` prefix is required — a bare `npx dsh-insight` will fail.
 
-Either way, then:
+Either way, then — **select the directory that directly contains `manifest.json`**:
 
 1. Open `chrome://extensions` (or `edge://extensions`) and enable Developer mode;
 2. Choose "Load unpacked" and select that directory;
 3. Click the toolbar icon to open the side panel.
+
+With the CLI the directory is `…/dsh-insight/` **itself**, with the manifest at its root — there is deliberately **no nested** `extension/` level. Picking the parent yields "manifest file is missing or unreadable"; Edge is right, that level has no `manifest.json`.
 
 The extension is loaded **in place** from that directory: after editing sources (or upgrading), copy the files again and hit "Reload" on the extensions page. Do not delete the directory, or the extension breaks.
 

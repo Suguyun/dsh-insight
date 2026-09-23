@@ -97,14 +97,16 @@ dsh plugin --profile web add ./dsh-insight
 npx github:Suguyun/dsh-insight install
 ```
 
-它会把 `extension/` 复制到一个稳定的用户目录并打印该路径。
+它会把扩展复制到一个稳定的用户目录并打印该路径。
 注意：本包**没有发布到 npm**，所以必须带 `github:` 前缀，直接 `npx dsh-insight` 会失败。
 
-两种方式之后都一样：
+两种方式之后都一样 —— **要选的是「里面直接就有 `manifest.json`」的那一层**：
 
 1. 打开 `chrome://extensions`（Edge 是 `edge://extensions`），打开「开发者模式」；
-2. 点「加载已解压的扩展程序」，选择上面那个目录；
+2. 点「加载已解压的扩展程序」，选中那一层；
 3. 点工具栏图标打开侧栏。
+
+命令行方式装的目录就是 `…/dsh-insight/` **本身**，清单在它根部 —— 这里有意**不嵌套** `extension/` 子目录。选成上一层会报「清单文件丢失或不可读取」，Edge 没说错：那一层确实没有 `manifest.json`。
 
 扩展是从该目录**就地加载**的：改完源码（或换了新版本）后，重新复制一次文件，并在扩展页点一次「重新加载」。注意别删掉这个目录，否则扩展会失效。
 

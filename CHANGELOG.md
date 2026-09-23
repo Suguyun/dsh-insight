@@ -3,6 +3,20 @@
 本项目 fork 自 [stuarthu/dsh-chrome](https://github.com/stuarthu/dsh-chrome) v0.1.3（MIT）。
 以下记录本 fork 相对上游的全部变更。
 
+## 0.1.1
+
+### 修复
+
+- **扩展安装目录不再多嵌套一层**。`dsh-insight install` 原先装到
+  `<用户目录>/dsh-insight/extension/`，而「加载已解压的扩展程序」对话框里很自然
+  会选中名字更像产品名的上一层 `<用户目录>/dsh-insight/`，于是报
+  「清单文件丢失或不可读取」—— 那一层确实没有 `manifest.json`。现在直接装到
+  `<用户目录>/dsh-insight/`，清单就在该目录根部，**选它即可**。
+- `install` 增加了装后自检：若目标目录根部没有 `manifest.json`（例如目标已存在导致
+  复制被套进子目录），直接报错退出，而不是打印一个错误路径。
+
+扩展本体与 `manifest.json` 均未改动（仍为 0.1.0），此版本仅涉及安装器与文档。
+
 ## 0.1.0
 
 首个公开版本。
