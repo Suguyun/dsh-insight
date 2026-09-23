@@ -42,6 +42,10 @@
   let card = null;
   let busy = false;
 
+  // 最近一次鼠标位置。Range 的几何信息在某些页面是坏的（见 anchorRect），那时用它兜底，
+  // 否则浮标会带着 "NaNpx" 的 left/top 插进文档 —— 无效值被浏览器忽略，浮标就此消失。
+  let lastPointer = null;
+
   // 侧栏当前是否展开。内容脚本看不到侧栏，由 background 以侧栏长连接的有无判断
   // 后告知（启动时问一次，之后靠推送）。默认 true —— 拿不准时按「开着」处理，
   // 与改动前的行为一致，不会误伤。
@@ -182,20 +186,73 @@
     notice = null;
   }
 
-  /** 当前选区；不可用（折叠、太短、没有几何信息）时返回 undefined。 */
+  /** 能用来摆浮标的矩形：四个数都得是有限值，且不能是完全空的一小块。 */
+  function usableRect(rect) {
+    if (rect === undefined || rect === null) return false;
+    const { left, top, width, height } = rect;
+    const finite = [left, top, width, height].every(
+      (v) => typeof v === "number" && Number.isFinite(v),
+    );
+    if (!finite) return false;
+    return width > 0 || height > 0;
+  }
+
+  /** 把鼠标位置当成一个零尺寸锚点。 */
+  function pointerRect() {
+    if (lastPointer === null) return null;
+    const { x, y } = lastPointer;
+    return { left: x, top: y, right: x, bottom: y, width: 0, height: 0 };
+  }
+
+  /** 最后的兜底：视口内一个固定点，宁可位置不准也不能丢掉这次划词。 */
+  function centerRect() {
+    const x = Math.round(window.innerWidth / 2);
+    const y = Math.round(window.innerHeight / 3);
+    return { left: x, top: y, right: x, bottom: y, width: 0, height: 0 };
+  }
+
+  /**
+   * 给这次选区长出一个**可用**的锚点矩形。
+   *
+   * 不能只信 `range.getBoundingClientRect()`：实测在 Monaco 编辑器里它返回
+   * `width=0, height=NaN`。NaN 会顺着 `Math.max(8, …)` 传下去，让浮标的
+   * left/top 变成 "NaNpx" —— 无效值被浏览器直接忽略，浮标看着就像没出现。
+   *
+   * 所以逐级退化：Range 包围盒 → Range 分段矩形 → 选区所在元素 → 鼠标位置 → 视口定点。
+   */
+  function anchorRectFor(range) {
+    const candidates = [];
+    try {
+      candidates.push(range.getBoundingClientRect());
+    } catch {}
+    try {
+      for (const r of range.getClientRects()) candidates.push(r);
+    } catch {}
+    try {
+      const node = range.startContainer;
+      const el = node?.nodeType === 1 ? node : node?.parentElement;
+      if (el?.getBoundingClientRect) candidates.push(el.getBoundingClientRect());
+    } catch {}
+    for (const r of candidates) if (usableRect(r)) return r;
+    return pointerRect() ?? centerRect();
+  }
+
+  /**
+   * 当前选区。只有在真的没有选区可用时才返回 undefined ——
+   * **几何信息坏掉不算「没有选区」**，那只影响浮标摆在哪。
+   */
   function currentSelection() {
     const selection = window.getSelection();
     if (selection === null || selection === undefined || selection.isCollapsed) return undefined;
     const text = selection.toString().trim();
     if (text.length < MIN_TEXT) return undefined;
-    let rect;
+    let range;
     try {
-      rect = selection.getRangeAt(0).getBoundingClientRect();
+      range = selection.getRangeAt(0);
     } catch {
       return undefined;
     }
-    if (rect === undefined || (rect.width === 0 && rect.height === 0)) return undefined;
-    return { text: text.slice(0, MAX_TEXT), rect };
+    return { text: text.slice(0, MAX_TEXT), rect: anchorRectFor(range) };
   }
 
   /**
@@ -454,6 +511,33 @@
     })();
   }
 
+  // 「明明有选区却没接住」只记一次（每页）。普通点击不算 —— 只有真的存在
+  // 非折叠、有文字的选区时才会写，所以不会有噪声。
+  let captureMissTraced = false;
+  function traceCaptureMissOnce() {
+    if (captureMissTraced) return;
+    let detail = "";
+    try {
+      const s = window.getSelection();
+      if (s === null || s === undefined || s.isCollapsed) return;
+      const text = s.toString().trim();
+      if (text.length === 0) return;
+      let rect = "none";
+      try {
+        const r = s.getRangeAt(0).getBoundingClientRect();
+        rect = `${String(r.width)}x${String(r.height)}`;
+      } catch (error) {
+        rect = `throw:${String(error?.message ?? error)}`;
+      }
+      detail = `len=${String(text.length)} rect=${rect} ranges=${String(s.rangeCount)}`;
+    } catch (error) {
+      detail = `probe-failed:${String(error?.message ?? error)}`;
+    }
+    if (detail === "") return;
+    captureMissTraced = true;
+    recordTrace({ event: "capture-miss", ok: false, ms: 0, error: detail.slice(0, 140) });
+  }
+
   // 跳过只记一次（每页），免得侧栏没开时每次划词都写一遍存储。
   let panelSkipTraced = false;
   function tracePanelSkipOnce() {
@@ -483,6 +567,8 @@
         clearBubble();
         lastAutoText = null;
         pendingAuto = null; // 选区都取消了，排队的那次也没必要了
+        // 极少数情况下确实存在选区却没接住 —— 记下原因，免得下次又只能靠猜。
+        traceCaptureMissOnce();
         return;
       }
       // 扩展重载后本页的脚本已成孤儿：任何请求都注定失败，直接说清原因。
@@ -520,7 +606,13 @@
     }, wait);
   }
 
-  document.addEventListener("mouseup", onSelectionSettled, true);
+  document.addEventListener("mouseup", (event) => {
+    // 先记指针位置：锚点矩形退化到最后一档时靠它摆浮标。
+    if (typeof event?.clientX === "number" && typeof event?.clientY === "number") {
+      lastPointer = { x: event.clientX, y: event.clientY };
+    }
+    onSelectionSettled();
+  }, true);
   document.addEventListener("keyup", (event) => {
     const key = event.key ?? "";
     if (key === "Shift" || key.startsWith("Arrow")) onSelectionSettled();
