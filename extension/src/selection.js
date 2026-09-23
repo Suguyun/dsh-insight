@@ -13,8 +13,13 @@
 // 样式全部用 CSSOM 逐条赋值（不用 <style> 标签），避免撞上页面的 CSP 与样式。
 
 (() => {
-  // 只在主框架运行；iframe 里的划词没有意义，还会重复插入浮标。
-  if (window.top !== window) return;
+  // 在所有帧里都运行。微前端/后台系统大量把正文嵌在 iframe 里，只跑顶层帧的话
+  // 那些页面划词会**完全没反应** —— 选中高亮正常，但顶层 document 既收不到
+  // mouseup/selectionchange，window.getSelection() 也是空的。
+  //
+  // 需要按帧区分的只有两处：孤儿横幅只由顶层帧弹（否则 N 个帧会弹 N 条），
+  // 以及上报的页面地址（跨域帧读不到 top.location，退回 document.referrer）。
+  const isTopFrame = window.top === window;
 
   // 注入自检：内容脚本可以直接用 chrome.storage，所以把这一笔直接落盘。
   // 「到底有没有注入」从此不需要靠猜 —— 能从扩展存储里读出来。
@@ -22,7 +27,8 @@
     try {
       const seen = await chrome.storage.local.get("content_ready");
       const list = Array.isArray(seen.content_ready) ? seen.content_ready : [];
-      list.unshift({ at: new Date().toISOString(), url: location.href });
+      // 标记子帧：修 iframe 划词时，这一笔就是「帧里到底注入了没有」的证据。
+      list.unshift({ at: new Date().toISOString(), url: location.href, ...(isTopFrame ? {} : { subframe: true }) });
       await chrome.storage.local.set({ content_ready: list.slice(0, 10) });
     } catch {}
   })();
@@ -138,6 +144,8 @@
   }
 
   function showOrphanNotice() {
+    // 只在顶层帧提示。现在脚本在每个帧里都跑，每个帧各弹一条会变成 N 条横幅。
+    if (!isTopFrame) return;
     if (notice !== null) return;
     const isDark = dark();
     const box = make("div", {
@@ -188,6 +196,22 @@
     }
     if (rect === undefined || (rect.width === 0 && rect.height === 0)) return undefined;
     return { text: text.slice(0, MAX_TEXT), rect };
+  }
+
+  /**
+   * 上报给 dsh 的「页面地址」。
+   *
+   * 现在内容脚本在所有帧里运行，所以可能是在某个 iframe 里划的词。优先用能反映
+   * 地址栏的那个：同源时直接读顶层帧的 URL；跨域读不到就退回 document.referrer
+   * —— 它就是嵌这个帧的页面。都没有才用帧自己的 URL。
+   */
+  function pageUrl() {
+    if (isTopFrame) return location.href;
+    try {
+      return window.top.location.href;
+    } catch {
+      return document.referrer !== "" ? document.referrer : location.href;
+    }
   }
 
   // ---- 浮标 ----
@@ -345,7 +369,7 @@
         chrome.runtime.sendMessage({
           type: "interpret",
           text,
-          url: location.href,
+          url: pageUrl(),
           title: document.title,
           // 结果该去哪儿 —— 供 background 的兜底闸门判断（sidebar 且侧栏没开则跳过）。
           target: sidebarOnly() ? "sidebar" : "page",
@@ -424,7 +448,7 @@
       try {
         const stored = await chrome.storage.local.get("content_last");
         const list = Array.isArray(stored.content_last) ? stored.content_last : [];
-        list.unshift({ at: new Date().toISOString(), url: location.href, ...entry });
+        list.unshift({ at: new Date().toISOString(), url: pageUrl(), ...entry });
         await chrome.storage.local.set({ content_last: list.slice(0, 10) });
       } catch {}
     })();

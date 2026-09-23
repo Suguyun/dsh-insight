@@ -1,6 +1,6 @@
 {
   "name": "dsh-insight",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "type": "module",
   "description": "DeepSeek Harness (dsh) 浏览器伴侣：网页划词即解读、侧栏多轮追问、Markdown 渲染，并让 dsh 智能体读取当前页面、抓取网络请求、驱动浏览器。",
   "keywords": [

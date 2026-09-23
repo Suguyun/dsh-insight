@@ -3,6 +3,26 @@
 本项目 fork 自 [stuarthu/dsh-chrome](https://github.com/stuarthu/dsh-chrome) v0.1.3（MIT）。
 以下记录本 fork 相对上游的全部变更。
 
+## 0.1.3
+
+### 修复
+
+- **iframe 里的划词完全没反应**。内容脚本原先第一行就是
+  `if (window.top !== window) return;`，只在顶层帧运行。于是**正文嵌在 iframe 里的
+  页面**（微前端外壳、后台系统、部分在线编辑器）划词彻底失效：选中高亮正常，但顶层
+  document 既收不到 `mouseup` / `selectionchange`，`window.getSelection()` 也是空的
+  —— 表现出来就是「有些网址划词没反应」，且没有任何报错可查。
+
+  修复：manifest 改为 `all_frames: true`，并加 `match_about_blank` 覆盖
+  `srcdoc` / `about:blank` 内嵌帧；脚本不再按帧提前退出。
+
+  连带处理了两个只在「多帧」下才出现的问题：
+  - 孤儿横幅（「扩展已更新，请刷新本页」）只在**顶层帧**弹一次，
+    否则每个帧各弹一条，页面上会出现 N 条横幅；
+  - 上报的**页面地址**：跨域帧读不到 `window.top.location`，退回
+    `document.referrer` —— 它是嵌这个帧的页面，比帧自己的 URL 更接近用户所在的页面。
+    同源帧直接用顶层帧 URL。
+
 ## 0.1.2
 
 ### 新增

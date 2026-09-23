@@ -175,6 +175,7 @@ The implementation here is **bounded**: at most 4000 chars per injection, whole 
 
 - Panel width is browser-controlled (Chrome's minimum is ~320 px); extensions cannot set it.
 - The Markdown renderer is dependency-free and self-written: **no table support**; headings, lists, quotes, fenced code, inline code, bold and links are supported.
+- `http(s)` pages only: `file://` files, the PDF viewer and the extension gallery cannot receive content scripts. **Pages whose body lives inside an iframe are supported** — the content script runs in every frame (including `srcdoc` / `about:blank` frames).
 - Verified on Chrome / Edge (MV3) only, not on Firefox.
 - Interpretation handles a single selection only; it does not summarize whole pages.
 - Interpretation creates no session and writes no logs — it is a one-shot Q&A.

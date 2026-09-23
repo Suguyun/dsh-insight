@@ -179,6 +179,7 @@ chrome.storage.local.set({ insight_mode: "auto-sidebar" });
 
 - 侧栏宽度由浏览器决定（Chrome 最小约 320px），扩展无法控制。
 - Markdown 渲染器是零依赖自研的，**不支持表格**；支持标题、列表、引用、代码块、行内代码、加粗、链接。
+- 只在 `http(s)` 页面上工作：`file://` 本地文件、PDF 阅读器、扩展商店等页面注入不了内容脚本。**正文嵌在 iframe 里的页面是支持的** —— 内容脚本会在所有帧里运行（含 `srcdoc` / `about:blank` 帧）。
 - 只在 Chrome / Edge（MV3）上验证过，未测 Firefox。
 - 划词解读只处理单段选区，不做整页摘要。
 - 划词解读不建会话、不写日志，是一次性的问答。
