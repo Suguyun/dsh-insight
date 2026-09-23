@@ -11,7 +11,41 @@
 // 结果没有任何地方能显示，这时整条链路直接跳过 —— 不发请求，也不弹浮标。
 //
 // 样式全部用 CSSOM 逐条赋值（不用 <style> 标签），避免撞上页面的 CSP 与样式。
+//
+// ── 诊断（这三个键只在排查问题时才需要读）────────────────────────────────
+//   content_ready  脚本开始执行（写在最前面）
+//   content_init   初始化**跑完**、监听器都已注册（写在最后面）
+//   content_error  初始化抛了异常，附带消息与栈顶
+//
+// 只「有 ready、没有 init」就等于「中途抛异常」，配合 content_error 能直接看到
+// 是哪一行。这一组是为一类特别难查的故障加的：**页面里选区明明存在，扩展却毫无
+// 反应，而且不留任何痕迹** —— 没有这三个键时，只能靠反复追问用户去控制台取值。
 
+/** 初始化抛异常时记一笔。**必须定义在 IIFE 外面** —— 它就是用来接住 IIFE 里异常的。 */
+function recordInitError(error) {
+  try {
+    const detail = {
+      at: new Date().toISOString(),
+      url: location.href,
+      message: String(error?.message ?? error).slice(0, 200),
+      stack: String(error?.stack ?? "")
+        .split("\n")
+        .slice(0, 3)
+        .join(" | ")
+        .slice(0, 300),
+    };
+    void chrome.storage.local
+      .get("content_error")
+      .then((stored) => {
+        const list = Array.isArray(stored.content_error) ? stored.content_error : [];
+        list.unshift(detail);
+        return chrome.storage.local.set({ content_error: list.slice(0, 5) });
+      })
+      .catch(() => {});
+  } catch {}
+}
+
+try {
 (() => {
   // 在所有帧里都运行。微前端/后台系统大量把正文嵌在 iframe 里，只跑顶层帧的话
   // 那些页面划词会**完全没反应** —— 选中高亮正常，但顶层 document 既收不到
@@ -634,4 +668,36 @@
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible" && isOrphaned()) showOrphanNotice();
   }, true);
+
+  // ── 初始化完成标记：写在最末，所以「有 content_init」就等于「监听器都注册好了」。
+  // 同时还记下**跑的是哪个版本**、以及**是不是孤儿**，这两项正是排查「划不动」时
+  // 最先要区分的：是旧版本还在跑？还是页面没跟着扩展一起刷新？
+  void (async () => {
+    try {
+      let version = "?";
+      let orphan = false;
+      // 「是否孤儿」与「取版本」分开判定：取不到版本不该被误报成孤儿。
+      try {
+        orphan = chrome.runtime.id === undefined;
+      } catch {
+        orphan = true;
+      }
+      try {
+        version = chrome.runtime.getManifest().version;
+      } catch {}
+      const stored = await chrome.storage.local.get("content_init");
+      const list = Array.isArray(stored.content_init) ? stored.content_init : [];
+      list.unshift({
+        at: new Date().toISOString(),
+        url: location.href,
+        version,
+        orphan,
+        ...(isTopFrame ? {} : { subframe: true }),
+      });
+      await chrome.storage.local.set({ content_init: list.slice(0, 10) });
+    } catch {}
+  })();
 })();
+} catch (error) {
+  recordInitError(error);
+}

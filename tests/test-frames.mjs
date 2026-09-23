@@ -71,6 +71,7 @@ globalThis.chrome = {
   },
   runtime: {
     id: "test-ext",
+    getManifest: () => ({ version: "0.0.0-test" }),
     onMessage: { addListener: (fn) => env.panelListeners.push(fn) },
     sendMessage: async (m) => {
       if (m?.type === "panel-state-query") return { open: true };
@@ -93,6 +94,15 @@ const select = (text) => {
 };
 
 check("子帧里脚本完成了初始化（没有在开头提前 return）", env.listeners["mouseup"] !== undefined && env.listeners["mouseup"].length > 0);
+
+// 诊断：初始化跑完才会写 content_init，并带上「跑的是哪个版本」「是不是孤儿」。
+// 「划不动」时最先要区分的就是这两件事：旧版本还在跑？页面没跟着扩展刷新？
+const inits = Array.isArray(store.content_init) ? store.content_init : [];
+const mine = inits.find((e) => e.url === "https://panel.example.com/widget");
+check("初始化完成标记已写入", mine !== undefined, JSON.stringify(inits));
+check("标记里带上了扩展版本", mine?.version === "0.0.0-test", String(mine?.version));
+check("标记里带上了孤儿状态（此处应为 false）", mine?.orphan === false, String(mine?.orphan));
+check("标记里标出了子帧", mine?.subframe === true, JSON.stringify(mine));
 
 // 默认模式（click）：选中后应出现浮标 —— 这是原先在子帧里绝不会发生的事
 select("子帧里选中的文字"); env.fire("mouseup", {});
