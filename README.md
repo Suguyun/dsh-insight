@@ -75,21 +75,38 @@ dsh plugin --profile web add github:Suguyun/dsh-insight
 
 这条命令会安装本包，并自动把 `dsh-insight` 写进该 profile 的 `dsh.profile.bundles`（`dsh plugin` 是 pnpm 的转发器，装完会对齐 bundles 列表）。
 
-> **为什么不用 `link:` 指向本地克隆？** Node 按模块的**真实路径**向上解析依赖，符号链接进来的包实际留在 profile 之外，解析不到 dsh 自己的 `@deepseek-ai/dsh-llm`，插件会加载失败。要在本地开发，请把仓库放在 profile 目录**里面**再 `link:`，或直接用上面的 `github:` 安装。
+> **为什么不用 `link:` 指向本地克隆？** Node 按模块的**真实路径**向上解析依赖，符号链接进来的包实际留在 profile 之外，解析不到 dsh 自己的 `@deepseek-ai/dsh-llm`，插件会加载失败。
+
+若访问 github.com 的 HTTPS 受限（`github:` 规格拉不动），可改用 SSH 克隆到 profile 目录**内部**再安装 —— 这样它就在 profile 里，依赖能正常解析：
+
+```bash
+cd ~/.dsh/profiles/web
+git clone git@github.com:Suguyun/dsh-insight.git
+dsh plugin --profile web add ./dsh-insight
+```
 
 ### 2. 装扩展
 
+**方式 A：用发布包（不需要命令行）**
+
+从 [Releases](https://github.com/Suguyun/dsh-insight/releases) 下载 `dsh-insight-<版本>.zip`，解压到一个**固定不动**的目录（`manifest.json` 就在解压出的那一层）。
+
+**方式 B：命令行**
+
 ```bash
-npx dsh-insight install
+npx github:Suguyun/dsh-insight install
 ```
 
-（等价于 `node bin/cli.js install`。）它会把 `extension/` 复制到一个稳定的用户目录并打印该路径。然后：
+它会把 `extension/` 复制到一个稳定的用户目录并打印该路径。
+注意：本包**没有发布到 npm**，所以必须带 `github:` 前缀，直接 `npx dsh-insight` 会失败。
+
+两种方式之后都一样：
 
 1. 打开 `chrome://extensions`（Edge 是 `edge://extensions`），打开「开发者模式」；
-2. 点「加载已解压的扩展程序」，选择上一步打印的目录；
+2. 点「加载已解压的扩展程序」，选择上面那个目录；
 3. 点工具栏图标打开侧栏。
 
-改完扩展源码后要重新 `npx dsh-insight install`，并在扩展页点一次「重新加载」。
+扩展是从该目录**就地加载**的：改完源码（或换了新版本）后，重新复制一次文件，并在扩展页点一次「重新加载」。注意别删掉这个目录，否则扩展会失效。
 
 ### 3. 验证
 

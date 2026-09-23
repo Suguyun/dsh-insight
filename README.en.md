@@ -75,21 +75,38 @@ dsh plugin --profile web add github:Suguyun/dsh-insight
 
 This installs the package and writes `dsh-insight` into that profile's `dsh.profile.bundles` (`dsh plugin` is a pnpm forwarder that reconciles the bundle list afterwards).
 
-> **Why not `link:` to a local clone?** Node resolves dependencies by a module's *real path*. A symlinked package physically lives outside the profile and therefore cannot resolve dsh's own `@deepseek-ai/dsh-llm`, so the plugins fail to load. For local development, keep the clone *inside* the profile directory before linking, or just use the `github:` install above.
+> **Why not `link:` to a local clone?** Node resolves dependencies by a module's *real path*. A symlinked package physically lives outside the profile and therefore cannot resolve dsh's own `@deepseek-ai/dsh-llm`, so the plugins fail to load.
+
+If HTTPS access to github.com is restricted (so the `github:` spec cannot be fetched), clone over SSH **inside** the profile directory instead — that keeps it within the profile, so dependencies resolve:
+
+```bash
+cd ~/.dsh/profiles/web
+git clone git@github.com:Suguyun/dsh-insight.git
+dsh plugin --profile web add ./dsh-insight
+```
 
 ### 2. Extension
 
+**Option A — use the release package (no CLI needed)**
+
+Download `dsh-insight-<version>.zip` from [Releases](https://github.com/Suguyun/dsh-insight/releases) and unzip it into a directory you will **keep in place** (`manifest.json` sits at the root of the unzipped folder).
+
+**Option B — CLI**
+
 ```bash
-npx dsh-insight install
+npx github:Suguyun/dsh-insight install
 ```
 
-(Equivalent to `node bin/cli.js install`.) It copies `extension/` to a stable per-user directory and prints the path. Then:
+It copies `extension/` to a stable per-user directory and prints the path.
+Note: this package is **not published to npm**, so the `github:` prefix is required — a bare `npx dsh-insight` will fail.
+
+Either way, then:
 
 1. Open `chrome://extensions` (or `edge://extensions`) and enable Developer mode;
-2. Choose "Load unpacked" and select the printed directory;
+2. Choose "Load unpacked" and select that directory;
 3. Click the toolbar icon to open the side panel.
 
-After editing extension sources, re-run `npx dsh-insight install` and hit "Reload" on the extensions page.
+The extension is loaded **in place** from that directory: after editing sources (or upgrading), copy the files again and hit "Reload" on the extensions page. Do not delete the directory, or the extension breaks.
 
 ### 3. Verify
 
