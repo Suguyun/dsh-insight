@@ -66,9 +66,12 @@ await release(1);
 check("只补发最新的 D（C 被覆盖）", JSON.stringify(calls) === '["text-A","text-B","text-D"]', JSON.stringify(calls));
 
 console.log("5) 诊断轨迹已记录（此刻只完成了 A、B 两次，D 仍在飞行）");
-check("写了 content_last", Array.isArray(store.content_last) && store.content_last.length === 2, JSON.stringify(store.content_last?.length));
-check("轨迹里是 auto 事件", store.content_last?.[0]?.event === "auto", JSON.stringify(store.content_last?.[0]));
-check("记录了耗时", typeof store.content_last?.[0]?.ms === "number", JSON.stringify(store.content_last?.[0]?.ms));
+// 只数 auto 事件：content_last 里还会混入 settle-first / settle-selection
+// 之类的诊断条目，数总数会把无关的写入也算进来。
+const autos = () => (Array.isArray(store.content_last) ? store.content_last : []).filter((e) => e.event === "auto");
+check("两次解答各留了一条 auto 轨迹", autos().length === 2, JSON.stringify(autos().length));
+check("轨迹里是 auto 事件", autos()[0]?.event === "auto", JSON.stringify(autos()[0]));
+check("记录了耗时", typeof autos()[0]?.ms === "number", JSON.stringify(autos()[0]?.ms));
 
 console.log("6) 选区取消时，排队的那次也应作废");
 select("text-E"); fire("selectionchange"); await tick(700);   // D 还在跑 → E 排队
@@ -77,7 +80,7 @@ fire("selectionchange"); await tick(700);
 const before = calls.length;
 await release(2);
 check("E 已作废、不再补发", calls.length === before, JSON.stringify(calls));
-check("D 完成后轨迹变 3 条", store.content_last?.length === 3, JSON.stringify(store.content_last?.length));
+check("D 完成后 auto 轨迹变 3 条", autos().length === 3, JSON.stringify(autos().length));
 
 console.log(`\n结果：${pass} 通过 / ${fail} 失败`);
 process.exit(fail === 0 ? 0 : 1);

@@ -545,6 +545,50 @@ try {
     })();
   }
 
+  // 「回调第一次真的跑起来」记一次（每页）。这一笔回答的是：
+  //   监听器在不在？事件到没到？回调当时看到了什么？
+  // 它和 content_init（初始化跑完）、content_error（初始化抛异常）合起来三分：
+  //   有 error 没 init            → 初始化就挂了，看 content_error 的栈
+  //   有 init 没 settle           → 监听器在，但 mouseup/selectionchange 没到我们手里
+  //   有 init 也有 settle         → 事件到了，问题在回调内部的判断（快照里能看到）
+  let settleSeen = false;
+  let settleWithTextSeen = false;
+  function snapshotNow() {
+    try {
+      const sel = window.getSelection();
+      const text = sel === null || sel === undefined ? "" : sel.toString().trim();
+      return (
+        `len=${String(text.length)}` +
+        ` collapsed=${String(sel?.isCollapsed ?? "null")}` +
+        ` orphan=${String(isOrphaned())}` +
+        ` mode=${mode}` +
+        ` panel=${String(panelOpen)}` +
+        ` ranges=${String(sel?.rangeCount ?? "null")}`
+      );
+    } catch (error) {
+      return `snapshot-failed:${String(error?.message ?? error)}`;
+    }
+  }
+  function traceSettleOnce() {
+    // 第一次回调（哪怕只是点了一下空白）：证明「事件确实到达了我们手里」。
+    if (!settleSeen) {
+      settleSeen = true;
+      recordTrace({ event: "settle-first", ok: true, ms: 0, error: snapshotNow().slice(0, 140) });
+    }
+    // 第一次回调时**确实有非空选区**：这一笔才是排查「选中了没反应」的关键。
+    // 单独记是因为用户可能先点空白再选词，第一笔快照会是没有选区的样子。
+    if (!settleWithTextSeen) {
+      try {
+        const sel = window.getSelection();
+        const text = sel === null || sel === undefined ? "" : sel.toString().trim();
+        if (text.length > 0) {
+          settleWithTextSeen = true;
+          recordTrace({ event: "settle-selection", ok: true, ms: 0, error: snapshotNow().slice(0, 140) });
+        }
+      } catch {}
+    }
+  }
+
   // 「明明有选区却没接住」只记一次（每页）。普通点击不算 —— 只有真的存在
   // 非折叠、有文字的选区时才会写，所以不会有噪声。
   let captureMissTraced = false;
@@ -596,6 +640,7 @@ try {
     // 自动模式等久一点：拖选过程中会不断「稳定」，太灵敏会白跑好几次请求。
     const wait = autoMode() ? 450 : 220;
     debounce = window.setTimeout(() => {
+      traceSettleOnce();
       const selection = currentSelection();
       if (selection === undefined) {
         clearBubble();
