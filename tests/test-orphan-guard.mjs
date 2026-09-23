@@ -27,7 +27,9 @@ win.top = win;
 globalThis.window = win;
 globalThis.location = { href: "https://example.com/p" };
 globalThis.chrome = {
-  runtime: { id: undefined, sendMessage: async (m) => { env.sent.push(m); return { ok: true, text: "X" }; } },  // 一开始就是孤儿
+  // onMessage：selection.js 会订阅侧栏开合状态。
+  // sendMessage 要先挡掉 panel-state-query，否则它会混进 env.sent 干扰断言。
+  runtime: { id: undefined, onMessage: { addListener() {} }, sendMessage: async (m) => { if (m?.type === "panel-state-query") return { open: true }; env.sent.push(m); return { ok: true, text: "X" }; } },  // 一开始就是孤儿
   storage: { local: { get: async ()=>({}), set: async()=>{} }, onChanged: { addListener(){} } },
 };
 const fire = (t) => { for (const h of env.listeners[t] || []) h({}); };

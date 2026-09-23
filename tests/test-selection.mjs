@@ -32,7 +32,7 @@ globalThis.chrome = {
     get: async (keys) => { const l=Array.isArray(keys)?keys:[keys]; const o={}; for(const k of l) if(k in store)o[k]=store[k]; return o; },
     set: async (o) => Object.assign(store, o) },
     onChanged: { addListener: (fn) => env.onChanged.push(fn) } },
-  runtime: { id: "test-ext", sendMessage: async (m) => { env.sent.push(m); return { ok: true, text: "ANSWER" }; } },
+  runtime: { id: "test-ext", onMessage: { addListener() {} }, sendMessage: async (m) => { if (m?.type === "panel-state-query") return { open: true }; env.sent.push(m); return { ok: true, text: "ANSWER" }; } },
 };
 env.fire = (t, ev) => { for (const h of env.listeners[t] || []) h(ev); };
 

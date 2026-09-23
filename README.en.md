@@ -21,6 +21,8 @@ Four trigger/display modes:
 
 The same text is only interpreted once. When you keep selecting, newer selections **queue up and supersede** older ones instead of being dropped mid-flight. The floating card can either follow the selection or stay pinned to the bottom-right.
 
+**When the side panel is closed, the two sidebar-only modes above do not interpret at all** — and no badge appears either. There is nowhere to show the result, so firing a model call would be pointless. The two page-card modes are unaffected: their result is drawn on the page and never needed the side panel.
+
 ### Native multi-turn follow-up in the side panel
 
 An input box sits right below the answer (`Enter` to send, `Shift+Enter` for a newline). Follow-ups are real multi-turn requests carrying the last 16 turns (4000 chars each) — no jumping elsewhere to start a new session.

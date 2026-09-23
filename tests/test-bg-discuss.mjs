@@ -40,9 +40,16 @@ globalThis.fetch = async (url, init) => {
 await import(URL_);
 await tick(120);
 
-// 挂一个假的侧栏端口，用来判断有没有广播
+// 挂一个假的侧栏端口，用来判断有没有广播；同时捕获 onDisconnect，
+// 以便后面模拟「侧栏被关掉」来验证兜底闸门。
+const panelDisconnects = [];
 for (const fn of listeners["runtime.onConnect"] || []) {
-  fn({ name: "panel", onDisconnect: { addListener() {} }, onMessage: { addListener() {} }, postMessage: (m) => panelMsgs.push(m) });
+  fn({
+    name: "panel",
+    onDisconnect: { addListener: (h) => panelDisconnects.push(h) },
+    onMessage: { addListener() {} },
+    postMessage: (m) => panelMsgs.push(m),
+  });
 }
 
 let pass = 0, fail = 0;
@@ -72,6 +79,28 @@ check("请求体带上了 history", Array.isArray(fetches[0].body.history) && fe
 check("没有写 last_insight", !(store.__writes || []).some((w) => w.includes("last_insight")), JSON.stringify(store.__writes));
 check("没有广播 insight", !panelMsgs.some((m) => m.type === "insight"), JSON.stringify(panelMsgs));
 check("讨论也不该广播 pending（面板自己有思考中占位）", !panelMsgs.some((m) => m.type === "insight-pending"), JSON.stringify(panelMsgs.map((m) => m.type)));
+
+console.log("4) 侧栏未展开时的兜底闸门");
+// 端口断开 = 侧栏被关掉（内容脚本已在源头拦过；这里防的是浮标弹出后侧栏才关掉的竞态）
+for (const h of panelDisconnects) h();
+await tick(30);
+
+let q = await send({ type: "panel-state-query" });
+check("panel-state-query 报告侧栏已关", q?.open === false, JSON.stringify(q));
+
+store.__writes = []; fetches.length = 0; panelMsgs.length = 0;
+reply = await send({ type: "interpret", text: "选区", url: "https://e.com", title: "T", target: "sidebar" });
+await tick(30);
+check("target=sidebar 且侧栏关：不调用模型", fetches.length === 0, String(fetches.length));
+check("target=sidebar 且侧栏关：回复 skipped", reply?.skipped === true && reply?.ok === false, JSON.stringify(reply));
+check("target=sidebar 且侧栏关：不写 last_insight", !(store.__writes || []).some((w) => w.includes("last_insight")), JSON.stringify(store.__writes));
+check("target=sidebar 且侧栏关：不广播 pending", !panelMsgs.some((m) => m.type === "insight-pending"), JSON.stringify(panelMsgs.map((m) => m.type)));
+
+// 页面浮窗模式不受影响 —— 结果画在页面上，侧栏关着也照常解读
+fetches.length = 0;
+reply = await send({ type: "interpret", text: "选区", url: "https://e.com", title: "T", target: "page" });
+await tick(30);
+check("target=page 且侧栏关：照常调用模型", fetches.length === 1 && reply?.ok === true, JSON.stringify(reply));
 
 console.log(`\n结果：${pass} 通过 / ${fail} 失败`);
 process.exit(fail === 0 ? 0 : 1);

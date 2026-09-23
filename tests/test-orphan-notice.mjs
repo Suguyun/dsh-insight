@@ -27,7 +27,7 @@ win.top = win;
 globalThis.window = win;
 globalThis.location = { href: "https://example.com/p" };
 globalThis.chrome = {
-  runtime: { id: "abcdef", sendMessage: async (m) => { env.sent.push(m); return { ok: true, text: "ANSWER" }; } },
+  runtime: { id: "abcdef", onMessage: { addListener() {} }, sendMessage: async (m) => { if (m?.type === "panel-state-query") return { open: true }; env.sent.push(m); return { ok: true, text: "ANSWER" }; } },
   storage: { local: { get: async (k)=>{const l=Array.isArray(k)?k:[k];const o={};for(const x of l)if(x in store)o[x]=store[x];return o;}, set: async(o)=>Object.assign(store,o) }, onChanged: { addListener(){} } },
 };
 const fire = (t) => { for (const h of env.listeners[t] || []) h({}); };

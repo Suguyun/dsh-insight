@@ -31,7 +31,7 @@ globalThis.location = { href: "https://example.com/p" };
 const calls = [];
 const resolvers = [];
 globalThis.chrome = {
-  runtime: { id: "abc", sendMessage: (m) => { calls.push(m.text); return new Promise((res) => resolvers.push(() => res({ ok: true, text: `解读:${m.text}` }))); } },
+  runtime: { id: "abc", onMessage: { addListener() {} }, sendMessage: (m) => { if (m?.type === "panel-state-query") return Promise.resolve({ open: true }); calls.push(m.text); return new Promise((res) => resolvers.push(() => res({ ok: true, text: `解读:${m.text}` }))); } },
   storage: { local: { get: async (k)=>{const l=Array.isArray(k)?k:[k];const o={};for(const x of l)if(x in store)o[x]=store[x];return o;}, set: async(o)=>Object.assign(store,o) }, onChanged: { addListener(){} } },
 };
 const fire = (t) => { for (const h of env.listeners[t] || []) h({}); };

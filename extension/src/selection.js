@@ -7,6 +7,9 @@
 // 刻意不依赖侧栏：解读结果直接出现在你划词的地方，不需要任何 iframe、cookie 或
 // 鉴权。侧栏那边只是同步显示同一条记录（见 sidepanel.js）。
 //
+// 例外是「结果只进侧栏」的两种模式（click-sidebar / auto-sidebar）：侧栏没打开时
+// 结果没有任何地方能显示，这时整条链路直接跳过 —— 不发请求，也不弹浮标。
+//
 // 样式全部用 CSSOM 逐条赋值（不用 <style> 标签），避免撞上页面的 CSP 与样式。
 
 (() => {
@@ -32,6 +35,11 @@
   let bubble = null;
   let card = null;
   let busy = false;
+
+  // 侧栏当前是否展开。内容脚本看不到侧栏，由 background 以侧栏长连接的有无判断
+  // 后告知（启动时问一次，之后靠推送）。默认 true —— 拿不准时按「开着」处理，
+  // 与改动前的行为一致，不会误伤。
+  let panelOpen = true;
 
   // ---- 设置：浮标文字 / 触发与展示方式 / 浮窗位置 ----
   //
@@ -315,6 +323,11 @@
 
   async function interpret(text, anchorRect) {
     if (busy) return;
+    // 兜底：调用方也可能是排队补发，这里再判一次，保证侧栏没开就绝不发请求。
+    if (panelUnavailable()) {
+      clearBubble();
+      return;
+    }
     busy = true;
     // 「只用侧边栏」时不建卡片：结果由 background 广播 + 落 last_insight 给侧栏。
     // 浮标也要收起来 —— 原来是被 showCard 里的 clearBubble 顺带收掉的，不建卡片
@@ -334,15 +347,24 @@
           text,
           url: location.href,
           title: document.title,
+          // 结果该去哪儿 —— 供 background 的兜底闸门判断（sidebar 且侧栏没开则跳过）。
+          target: sidebarOnly() ? "sidebar" : "page",
         }),
         new Promise((_, reject) => {
           timer = window.setTimeout(() => reject(new Error("请求超时（130 秒）")), REQUEST_TIMEOUT_MS);
         }),
       ]);
-      recordTrace({ event: autoMode() ? "auto" : "click", ok: reply?.ok === true, ms: Date.now() - started, error: reply?.ok === true ? "" : String(reply?.error ?? "") });
+      // skipped 不是失败，别污染诊断记录。
+      if (reply?.skipped !== true) {
+        recordTrace({ event: autoMode() ? "auto" : "click", ok: reply?.ok === true, ms: Date.now() - started, error: reply?.ok === true ? "" : String(reply?.error ?? "") });
+      }
       if (content !== null) {
         content.textContent =
-          reply?.ok === true ? reply.text : `解读失败：${String(reply?.error ?? "未知错误")}`;
+          reply?.skipped === true
+            ? "侧栏未打开，已跳过。"
+            : reply?.ok === true
+              ? reply.text
+              : `解读失败：${String(reply?.error ?? "未知错误")}`;
       }
     } catch (error) {
       // 请求途中扩展被重载也会走到这里 —— 同样属于「孤儿」，给出能照做的提示。
@@ -360,6 +382,29 @@
       // 排队中的那次选区（等这次期间用户选的）现在补上。
       flushPendingAuto();
     }
+  }
+
+  // ---- 侧栏开合状态 ----
+
+  void (async () => {
+    try {
+      const reply = await chrome.runtime.sendMessage({ type: "panel-state-query" });
+      if (typeof reply?.open === "boolean") panelOpen = reply.open;
+    } catch {}
+  })();
+
+  chrome.runtime.onMessage.addListener((msg) => {
+    if (msg?.type === "panel-state" && typeof msg.open === "boolean") panelOpen = msg.open;
+  });
+
+  /**
+   * 这次解读无处可显示：模式是「结果只进侧栏」，而侧栏没有打开。
+   *
+   * 只有这两种 sidebarOnly 模式会命中。页面浮窗模式（click / auto）不受影响 ——
+   * 它们的结果就画在页面上，本来就不需要侧栏。
+   */
+  function panelUnavailable() {
+    return sidebarOnly() && !panelOpen;
   }
 
   // ---- 事件 ----
@@ -383,6 +428,14 @@
         await chrome.storage.local.set({ content_last: list.slice(0, 10) });
       } catch {}
     })();
+  }
+
+  // 跳过只记一次（每页），免得侧栏没开时每次划词都写一遍存储。
+  let panelSkipTraced = false;
+  function tracePanelSkipOnce() {
+    if (panelSkipTraced) return;
+    panelSkipTraced = true;
+    recordTrace({ event: "skip-sidebar-closed", ok: false, ms: 0, error: "侧栏未展开，未发起解读" });
   }
 
   /** 上一次结束后，把排队中的那次选区补上。 */
@@ -413,6 +466,16 @@
       if (isOrphaned()) {
         clearBubble();
         showOrphanNotice();
+        return;
+      }
+      // 只能进侧栏、而侧栏没开：既不发请求，也不弹浮标（弹了也只会点了没反应）。
+      // 必须放在 auto 分支之前 —— 否则 lastAutoText 会被记成「已解读」，打开侧栏
+      // 后再选同一段文字就不会触发了。
+      if (panelUnavailable()) {
+        clearBubble();
+        lastAutoText = null;
+        pendingAuto = null;
+        tracePanelSkipOnce();
         return;
       }
       if (autoMode()) {

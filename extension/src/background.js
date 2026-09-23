@@ -67,14 +67,43 @@ const GET_PAGE_MAX_LINKS = 400;
 // ---- 侧栏通信 ----
 
 const panelPorts = new Set();
+
+/** 侧栏是否已打开 —— 以侧栏那条长连接的有无为判据。 */
+function sidePanelOpen() {
+  return panelPorts.size > 0;
+}
+
+/**
+ * 侧栏开合时通知所有标签页里的内容脚本。
+ *
+ * 「结果只进侧栏」的两种模式要靠它决定是否发起解读：侧栏没开时结果没有任何地方
+ * 能显示，白跑一次模型没有意义。内容脚本自己看不到侧栏，只能由这里告知。
+ */
+function broadcastPanelState() {
+  const open = sidePanelOpen();
+  void chrome.tabs
+    .query({})
+    .then((tabs) => {
+      for (const tab of tabs) {
+        if (tab.id === undefined) continue;
+        chrome.tabs.sendMessage(tab.id, { type: "panel-state", open }).catch(() => {});
+      }
+    })
+    .catch(() => {});
+}
+
 chrome.runtime.onConnect.addListener((port) => {
   if (port.name !== "panel") return;
   panelPorts.add(port);
-  port.onDisconnect.addListener(() => panelPorts.delete(port));
+  port.onDisconnect.addListener(() => {
+    panelPorts.delete(port);
+    broadcastPanelState();
+  });
   port.onMessage.addListener((msg) => {
     if (msg.type === "capture-stop") stopActiveCapture().catch(reportError);
   });
   broadcastStatus();
+  broadcastPanelState();
 });
 
 function toPanel(msg) {
@@ -187,6 +216,12 @@ async function interpretSelection(input) {
 //   discuss   —— 侧栏里的追问讨论：同一条 host 调用，但**不落记录、不广播** ——
 //                讨论挂在当前那条解读上，不该覆盖「最近一条」。
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  // 内容脚本启动时问一次侧栏开合状态；此后由 broadcastPanelState 主动推送。
+  if (msg?.type === "panel-state-query") {
+    sendResponse({ open: sidePanelOpen() });
+    return undefined;
+  }
+
   if (msg?.type === "discuss") {
     interpretSelection({
       text: msg.text,
@@ -200,6 +235,15 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
 
   if (msg?.type !== "interpret") return undefined;
+
+  // 兜底闸门：结果只进侧栏、而侧栏又没打开 —— 直接跳过，不调用模型。
+  // 内容脚本已在源头拦过一次；这里防的是「浮标弹出之后侧栏才被关掉」这类竞态，
+  // 保证无论如何都不会白跑一次解读。
+  if (msg.target === "sidebar" && !sidePanelOpen()) {
+    sendResponse({ ok: false, skipped: true, reason: "panel-closed" });
+    return undefined;
+  }
+
   (async () => {
     const started = Date.now();
     // 先告诉侧栏「开始了」。一次解读要十几秒（实测有过 20 秒），这期间面板上
