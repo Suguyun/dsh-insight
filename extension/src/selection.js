@@ -272,21 +272,28 @@ try {
   }
 
   /**
-   * 当前选区。只有在真的没有选区可用时才返回 undefined ——
-   * **几何信息坏掉不算「没有选区」**，那只影响浮标摆在哪。
+   * 当前选区。只有在**确实没有文字**时才返回 undefined。
+   *
+   * 两个「不」：
+   *   - **不信 `isCollapsed`**。实测（Monaco 编辑器）会给出自相矛盾的状态：
+   *     `isCollapsed === true` 但 `toString()` 有 89 个字符。以它为准会把这种选区
+   *     直接丢掉，表现就是「选中了、扩展毫无反应」，而且不留任何痕迹。
+   *     **文本长度才是「有没有东西可解读」的唯一真相。**
+   *   - 几何信息坏掉也不算「没有选区」，那只影响浮标摆在哪（见 anchorRectFor）。
    */
   function currentSelection() {
     const selection = window.getSelection();
-    if (selection === null || selection === undefined || selection.isCollapsed) return undefined;
+    if (selection === null || selection === undefined) return undefined;
     const text = selection.toString().trim();
     if (text.length < MIN_TEXT) return undefined;
-    let range;
+    let rect;
     try {
-      range = selection.getRangeAt(0);
+      rect = anchorRectFor(selection.getRangeAt(0));
     } catch {
-      return undefined;
+      // rangeCount 为 0 之类：拿不到几何不影响解读，退回指针/视口定点。
+      rect = pointerRect() ?? centerRect();
     }
-    return { text: text.slice(0, MAX_TEXT), rect: anchorRectFor(range) };
+    return { text: text.slice(0, MAX_TEXT), rect };
   }
 
   /**
@@ -597,8 +604,10 @@ try {
     let detail = "";
     try {
       const s = window.getSelection();
-      if (s === null || s === undefined || s.isCollapsed) return;
+      if (s === null || s === undefined) return;
       const text = s.toString().trim();
+      // 注意：这里**不能**用 s.isCollapsed 提前返回 —— 它正是会给出错误值的那一项，
+      // 之前就是因为它，这条诊断和被诊断的代码犯了同一个错、一条都没记下来。
       if (text.length === 0) return;
       let rect = "none";
       try {

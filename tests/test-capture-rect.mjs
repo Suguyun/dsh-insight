@@ -82,9 +82,10 @@ let rangeRect = GOOD;
 let clientRects = [];
 let elementRect = null;
 
+let collapsedLie = false;   // true = 模拟 isCollapsed 撒谎（实测自 Monaco）
 function select(text) {
   env.selection = {
-    isCollapsed: false, rangeCount: 1, toString: () => text,
+    isCollapsed: collapsedLie, rangeCount: 1, toString: () => text,
     getRangeAt: () => ({
       getBoundingClientRect: () => rangeRect,
       getClientRects: () => clientRects,
@@ -175,7 +176,21 @@ const reqs = env.sent.filter((m) => m?.type === "interpret");
 check("发出了 interpret 请求", reqs.length === 1, String(reqs.length));
 check("请求带上了选区文字", reqs[0]?.text === "click me", String(reqs[0]?.text));
 
-console.log("9) 真的没有选区时，不写 capture-miss 噪声");
+console.log("10) isCollapsed 撒谎（实测 Monaco：collapsed=true 但文本 89 字符）");
+await reset();
+collapsedLie = true;                 // ← 关键：与 toString() 矛盾
+rangeRect = ZERO; clientRects = [ZERO]; elementRect = null;
+b = await dragSelect("collapsed-but-has-text", { x: 500, y: 300 });
+check("不能被 isCollapsed 丢掉（旧代码在此直接 return undefined）", b !== undefined, "选区被丢弃了");
+check("left/top 是有限 px", placed(b), JSON.stringify(b?.style));
+b?.fire("click", { preventDefault() {}, stopPropagation() {} });
+await tick(80);
+const reqsLie = env.sent.filter((m) => m?.type === "interpret");
+check("照样发出解读请求", reqsLie.length === 1, String(reqsLie.length));
+check("请求里的文本完整", reqsLie[0]?.text === "collapsed-but-has-text", String(reqsLie[0]?.text));
+collapsedLie = false;
+
+console.log("11) 真的没有选区时，不写 capture-miss 噪声");
 await reset();
 store.content_last = [];
 env.fire("mouseup", {});
