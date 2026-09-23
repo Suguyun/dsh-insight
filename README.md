@@ -191,7 +191,7 @@ cd dsh-insight
 node tests/run.mjs      # 或 npm test
 ```
 
-`tests/` 下是 15 个自包含套件、137+ 项断言，覆盖划词触发模式、请求队列、孤儿脚本守卫、侧栏视图与追问、Markdown 渲染、设置页、口径预设、抓包脱敏等。
+`tests/` 下是 17 个自包含套件（会打印计数的那些合计 **168** 项断言），覆盖划词触发模式、侧栏开合闸门、请求队列、孤儿脚本守卫、侧栏视图与追问、Markdown 渲染、设置页、口径预设、抓包脱敏、安装器目录层级等。
 
 每个套件自带 DOM / chrome API 打桩并直接 import 仓库源码，不需要构建。其中 `test-host-mt` 与 `test-presets` 直接测 `host/insight.js`，需要能解析到 dsh 的 `@deepseek-ai/dsh-llm`；裸克隆里它们会打印 `SKIP` 并计为跳过，而不是失败。
 

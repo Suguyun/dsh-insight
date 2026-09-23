@@ -187,7 +187,7 @@ cd dsh-insight
 node tests/run.mjs      # or: npm test
 ```
 
-`tests/` holds 15 self-contained suites with 137+ assertions covering trigger modes, the request queue, the orphaned-content-script guard, panel views and follow-ups, Markdown rendering, the options page, presets and capture redaction.
+`tests/` holds 17 self-contained suites (**168** assertions across those that report counts) covering trigger modes, the sidebar-open gate, the request queue, the orphaned-content-script guard, panel views and follow-ups, Markdown rendering, the options page, presets, capture redaction and the installer's target layout.
 
 Each suite ships its own DOM / chrome API stubs and imports repository sources directly — no build step. `test-host-mt` and `test-presets` exercise `host/insight.js` and need dsh's `@deepseek-ai/dsh-llm` to resolve; in a bare clone they print `SKIP` and count as skipped rather than failing.
 
