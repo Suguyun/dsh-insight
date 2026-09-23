@@ -3,6 +3,74 @@
 本项目 fork 自 [stuarthu/dsh-chrome](https://github.com/stuarthu/dsh-chrome) v0.1.3（MIT）。
 以下记录本 fork 相对上游的全部变更。
 
+## 0.1.7
+
+### 修复
+
+- **某些页面划词毫无反应 —— 因为 `Selection.isCollapsed` 会撒谎。**
+
+  抓取选区的第一行判断是 `if (selection.isCollapsed) return undefined;`。而实测
+  （Monaco 编辑器）会出现**自相矛盾**的状态：
+
+  ```
+  window.getSelection().toString().trim().length === 89
+  window.getSelection().isCollapsed          === true      ← 撒谎
+  ```
+
+  于是这种选区被第一个判断直接丢掉 —— 表现就是「选中了、高亮正常、扩展毫无反应」，
+  而且不留任何痕迹。
+
+  修复：**判断依据从 `isCollapsed` 换成文本长度**。文本才是「有没有东西可解读」的
+  唯一真相；`isCollapsed` 现在只用于诊断记录，不再作为闸门。
+
+  另外：拿不到 `getRangeAt(0)` 时不再丢弃这次划词，改为退回指针/视口定点 ——
+  几何问题只应影响浮标位置，不该决定「要不要解读」。
+
+### 修复（诊断自身）
+
+- 0.1.4 加的 `capture-miss` 诊断里**犯了同一个错误**（也有
+  `if (s.isCollapsed) return;`），所以它一条都没记下来 —— 诊断与被诊断的代码共用了
+  同一个错误假设，导致连续几轮排查都看不到任何信号。已同步修正。
+
+  **教训：诊断不能复用被测代码的判断逻辑，否则两者会一起错。**
+
+### 测试
+
+- `tests/test-capture-rect.mjs` 增加场景「isCollapsed 撒谎」：断言该状态下仍必须
+  接住选区、摆好浮标、并发出解读请求。
+
+## 0.1.6
+
+### 新增（诊断）
+
+0.1.5 加了 `content_init` / `content_error`，能区分「没注入 / 初始化抛异常 / 孤儿 /
+正常」，但还答不了「事件有没有到达、回调看到了什么」。这一版补上：
+
+- `settle-first` —— 第一次计时器回调（哪怕只是点了下空白）。有它就证明
+  `mouseup` / `selectionchange` 确实到了我们手里。
+- `settle-selection` —— 第一次回调时**确实存在非空选区**时的快照，含
+  `len` / `collapsed` / `orphan` / `mode` / `panel` / `ranges`。单独记是因为用户
+  可能先点空白再选词，第一笔快照会看不到选区。
+
+两个标记都是每页最多一条，所以一轮之后状态**必然**落在五种之一：
+
+```
+有 content_error、没 content_init    → 初始化挂了，栈就在 content_error 里
+有 content_init、没 settle-first     → 监听器在，但事件没到我们手里
+有 settle-first、没 settle-selection → 事件到了，但回调时选区已经不在
+有 settle-selection + capture-miss   → 选区在、抓取失败（几何问题复发）
+有 settle-selection + 闸门/解读记录   → 走到闸门或正常解读
+```
+
+这一版正是靠 `settle-selection` 抓到真凶的：它如实记下了 `len=89 collapsed=true`
+这个矛盾状态（见 0.1.7）。它能记下来，只因它的判断用的是**文本长度**而不是
+`isCollapsed` —— 恰好绕开了那个错误假设。
+
+### 修复（测试）
+
+- `tests/test-queue` 两处断言数的是 `content_last` 的**总条数**，新增诊断键后立刻
+  失效。改为只统计 `auto` 轨迹 —— 那才是那两条断言的本意。
+
 ## 0.1.5
 
 ### 新增（诊断）
