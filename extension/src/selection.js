@@ -184,6 +184,10 @@ try {
   function showOrphanNotice() {
     // 只在顶层帧提示。现在脚本在每个帧里都跑，每个帧各弹一条会变成 N 条横幅。
     if (!isTopFrame) return;
+    // 侧栏没开、而结果又只能进侧栏：本来就不会有任何反应，再弹一条「请刷新本页」
+    // 纯属噪声 —— 而且违背了「只进侧栏」模式下页面保持干净的约定。
+    // 页面浮窗模式不受这条限制：那种模式本来就会在页面上出东西，缺了它需要解释。
+    if (panelUnavailable()) return;
     if (notice !== null) return;
     const isDark = dark();
     const box = make("div", {
