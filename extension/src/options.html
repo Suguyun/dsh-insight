@@ -23,19 +23,16 @@
 
       <label for="label">浮标文字</label>
       <input id="label" type="text" maxlength="12" placeholder="解读" />
-      <p class="hint">在网页上选中文字后旁边那个小按钮上的字。自动解读模式下用不到。</p>
+      <p class="hint">在网页上选中文字后旁边那个小按钮上的字。</p>
 
-      <label for="mode">触发与展示</label>
+      <label for="mode">结果展示位置</label>
       <select id="mode">
-        <option value="click">选中后点浮标 · 结果弹在页面浮窗</option>
-        <option value="click-sidebar">选中后点浮标 · 结果只进侧边栏</option>
-        <option value="auto">划词即解读 · 结果弹在页面浮窗</option>
-        <option value="auto-sidebar">划词即解读 · 结果只进侧边栏（页面不出现任何东西）</option>
+        <option value="click">弹在页面浮窗</option>
+        <option value="click-sidebar">只进侧边栏</option>
       </select>
       <p class="hint">
-        自动模式在停手约 0.45 秒后发请求，同一段文字只解读一次。「只进侧边栏」
-        会关掉页面里的浮窗，结果只在扩展侧栏显示；侧栏没打开时这两种模式不会发起
-        解读，也不弹浮标 —— 没有地方显示结果，就不白跑一次模型。改完点「保存」生效。
+        划词只弹浮标，<strong>点了浮标才发起解读</strong>。自动解读会让每一次划词都调用一次模型、token 消耗完全不受控，所以这个版本只保留手动触发。
+        「只进侧边栏」不弹浮窗，结果只在扩展侧栏显示；侧栏没打开时不会发起解读，也不弹浮标 —— 没有地方显示结果，就不白跑一次模型。改完点「保存」生效。
       </p>
 
       <label for="position">浮窗位置</label>

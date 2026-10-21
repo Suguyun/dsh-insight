@@ -8,22 +8,24 @@
 
 ### Select-to-interpret
 
-Select text and a small badge appears (label configurable, default "解读"). Click it and the **selection text + page URL + title** are sent to your local dsh; the answer is rendered as Markdown.
+Select text and a small badge appears (label configurable, default "解读"). **Nothing is sent until you click it** — then the **selection text + page URL + title** go to your local dsh and the answer is rendered as Markdown.
 
-Four trigger/display modes:
+**Only the badge click triggers a model call. Selecting text costs no tokens.** An interpretation is a model request, so auto-interpreting would burn one on every selection; that step is deliberately kept manual.
 
-| Mode | Trigger | Where the result goes |
-| --- | --- | --- |
-| `click` (default) | select, then click the badge | floating card on the page |
-| `click-sidebar` | select, then click the badge | side panel only |
-| `auto` | interpret on select (~0.45 s after you stop) | floating card on the page |
-| `auto-sidebar` | interpret on select | side panel only, nothing appears on the page |
+Two ways to show the result:
 
-The same text is only interpreted once. When you keep selecting, newer selections **queue up and supersede** older ones instead of being dropped mid-flight. The floating card can either follow the selection or stay pinned to the bottom-right. Answers in that card are **rendered as Markdown** as well, with inline styles so the page's CSS cannot interfere.
+| Mode | Where the result goes |
+| --- | --- |
+| `click` (default) | floating card on the page |
+| `click-sidebar` | side panel only |
 
-The 📌 button in the card's title bar pins it: clicking elsewhere no longer dismisses it, and the next selection **updates that same card in place** (no new card, no jumping position). Hold the title bar (the `⠿` grip) to drag the card anywhere.
+The old `auto` / `auto-sidebar` modes are gone; stale values in storage are normalized to `click` / `click-sidebar`, so an upgrade will not silently resume auto-interpreting.
 
-**When the side panel is closed, the two sidebar-only modes above do not interpret at all** — and no badge appears either. There is nowhere to show the result, so firing a model call would be pointless. The two page-card modes are unaffected: their result is drawn on the page and never needed the side panel.
+The badge always follows the latest selection and never stacks up. The floating card can either follow the selection or stay pinned to the bottom-right. Answers in that card are **rendered as Markdown** as well, with inline styles so the page's CSS cannot interfere.
+
+The 📌 button in the card's title bar pins it: clicking elsewhere no longer dismisses it, and the next selection plus badge click **updates that same card in place** (no new card, no jumping position). Hold the title bar (the `⠿` grip) to drag the card anywhere.
+
+**When the side panel is closed, the sidebar-only `click-sidebar` mode shows no badge and interprets nothing** — there is nowhere to show the result, so firing a model call would be pointless. The page-card mode is unaffected: its result is drawn on the page and never needed the side panel.
 
 ### The selected text is collapsible — and editable
 
@@ -149,12 +151,12 @@ Also note: **another extension's `chrome-extension://` pages** can be neither sc
 
 ## Configuration
 
-Settings (dsh URL, badge label, trigger mode, card position, panel background/font size, interpretation preset) live in `chrome.storage.local`:
+Settings (dsh URL, badge label, where results go, card position, panel background/font size, interpretation preset) live in `chrome.storage.local`:
 
 | Key | Meaning |
 | --- | --- |
 | `dsh_url` | dsh origin |
-| `insight_mode` | `click` / `click-sidebar` / `auto` / `auto-sidebar` |
+| `insight_mode` | `click` (page card) / `click-sidebar` (side panel only); legacy `auto` / `auto-sidebar` values are normalized |
 | `insight_label` | badge text |
 | `insight_position` | `follow` / `fixed` |
 | `insight_preset` | selected preset id |
@@ -167,7 +169,7 @@ Settings (dsh URL, badge label, trigger mode, card position, panel background/fo
 | `insight_autopush` | page push flag, **default `false`** |
 
 ```js
-chrome.storage.local.set({ insight_mode: "auto-sidebar" });
+chrome.storage.local.set({ insight_mode: "click-sidebar" });
 ```
 
 ### Enabling automatic page injection
@@ -196,7 +198,7 @@ cd dsh-insight
 node tests/run.mjs      # or: npm test
 ```
 
-`tests/` holds 21 self-contained suites (17 of them report assertion counts, **287** in total; 2 need an installed dsh and SKIP otherwise) covering trigger modes, the sidebar-open gate, the request queue, the orphaned-content-script guard, panel views and follow-ups, Markdown rendering, the options page, presets, capture redaction and the installer's target layout.
+`tests/` holds 21 self-contained suites (17 of them report assertion counts, **310** in total; 2 need an installed dsh and SKIP otherwise) covering manual-only triggering, the sidebar-open gate, the orphaned-content-script guard, panel views and follow-ups, Markdown rendering, the options page, presets, capture redaction and the installer's target layout.
 
 Each suite ships its own DOM / chrome API stubs and imports repository sources directly — no build step. `test-host-mt` and `test-presets` exercise `host/insight.js` and need dsh's `@deepseek-ai/dsh-llm` to resolve; in a bare clone they print `SKIP` and count as skipped rather than failing.
 

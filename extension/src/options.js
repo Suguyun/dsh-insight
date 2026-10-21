@@ -36,7 +36,14 @@ if (new URLSearchParams(window.location?.search ?? "").get("embed") === "1") {
 
 const DEFAULT_LABEL = "解读";
 // 与 selection.js 里的集合保持一致：那边只认这些取值，其余（含脏值）按默认处理。
-const MODES = new Set(["click", "click-sidebar", "auto", "auto-sidebar"]);
+// 只有两种模式 —— 结果落页面浮窗，还是只进侧栏。触发永远是点浮标。
+const MODES = new Set(["click", "click-sidebar"]);
+// 旧版 auto / auto-sidebar（划词即解读）会在存储里残留：读到时归一成手动模式，
+// 下次保存就把存储里的老值顺手改掉。
+const LEGACY_MODES = new Map([
+  ["auto", "click"],
+  ["auto-sidebar", "click-sidebar"],
+]);
 const POSITIONS = new Set(["follow", "fixed"]);
 const DEFAULT_MODE = "click";
 const DEFAULT_POSITION = "follow";
@@ -45,6 +52,12 @@ const DEFAULT_PRESET_ID = "default";
 const LEGACY_CUSTOM_ID = "custom";
 const NEW_PRESET = "__new__";
 const CUSTOM_NAME = "自定义口径";
+
+/** 旧版自动模式 → 对应的手动模式；认不出的值一律回落到默认选项。 */
+function normalizeMode(raw) {
+  const next = LEGACY_MODES.get(raw) ?? raw;
+  return MODES.has(next) ? next : DEFAULT_MODE;
+}
 
 // host 元数据：{ presets: [{id,name,system}], defaultSystem, maxSystem }
 let meta = { presets: [], defaultSystem: "", maxSystem: 4000 };
@@ -370,8 +383,9 @@ async function load() {
     "insight_custom",
   ]);
   $("label").value = stored.insight_label ?? DEFAULT_LABEL;
-  // 认不出的值一律回落默认选项，别把脏值回显到界面上。
-  $("mode").value = MODES.has(stored.insight_mode) ? stored.insight_mode : DEFAULT_MODE;
+  // 认不出的值一律回落默认选项，别把脏值回显到界面上；
+  // 旧版 auto* 归一成对应的手动模式，下拉里就不会出现一个已经不存在的选项。
+  $("mode").value = normalizeMode(stored.insight_mode);
   $("position").value = POSITIONS.has(stored.insight_position)
     ? stored.insight_position
     : DEFAULT_POSITION;

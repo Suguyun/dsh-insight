@@ -105,21 +105,28 @@ check("卡片不泄漏 ` 字面量", !allText(env.appended[0]).includes("`"), al
 const strongEl = env.appended[0].querySelectorAll("*").find((n) => n.tag === "strong");
 check("卡片给 strong 套了行内样式", strongEl !== undefined && strongEl.style.fontWeight === "650", JSON.stringify(strongEl?.style));
 
-// 2) auto：划词即解读，不弹浮标，同一段文字只一次
+// 2) 旧值 auto：必须归一成手动 —— 划词只弹浮标，点浮标才解读
 await reset(); await setMode({ insight_mode: "auto" });
-select("auto text"); env.fire("selectionchange", {});
-await tick(700);
-check("auto：自动发请求", env.sent.length === 1, String(env.sent.length));
-check("auto：页面出现结果卡片", env.appended.length === 1 && allText(env.appended[0]).includes("ANSWER"));
-const n2 = env.sent.length; env.fire("selectionchange", {}); await tick(700);
-check("auto：同一段文字不重复解读", env.sent.length === n2, String(env.sent.length));
+select("legacy auto text"); env.fire("selectionchange", {});
+await tick(600);
+check("旧值 auto：划词不发请求", env.sent.length === 0, String(env.sent.length));
+check("旧值 auto：只弹浮标", env.appended.length === 1 && allText(env.appended[0]) === "解读", String(env.appended.length));
+env.appended[0].fire("click", { preventDefault(){}, stopPropagation(){} });
+await tick(80);
+check("旧值 auto：点浮标才发请求", env.sent.length === 1, String(env.sent.length));
+check("旧值 auto：结果落在页面卡片", allText(env.appended[0]).includes("ANSWER"), allText(env.appended[0]));
 
-// 3) auto-sidebar：发请求但页面干干净净
+// 3) 旧值 auto-sidebar：归一成「只进侧栏 + 点浮标」
 await reset(); await setMode({ insight_mode: "auto-sidebar" });
 select("sidebar only"); env.fire("mouseup", {});
-await tick(700);
-check("auto-sidebar：发出请求（侧栏会实时收到）", env.sent.length === 1, String(env.sent.length));
-check("auto-sidebar：页面不出现任何元素", env.appended.length === 0, String(env.appended.length));
+await tick(600);
+check("旧值 auto-sidebar：划词不发请求", env.sent.length === 0, String(env.sent.length));
+check("旧值 auto-sidebar：浮标仍在（它是触发器）", env.appended.length === 1, String(env.appended.length));
+env.appended[0].fire("click", { preventDefault(){}, stopPropagation(){} });
+await tick(80);
+check("旧值 auto-sidebar：点击后发请求", env.sent.length === 1, String(env.sent.length));
+check("旧值 auto-sidebar：请求带 target=sidebar", env.sent[0]?.target === "sidebar", String(env.sent[0]?.target));
+check("旧值 auto-sidebar：页面不出现结果卡片", env.appended.length === 0, String(env.appended.length));
 
 // 4) click-sidebar：浮标在（它是触发器），结果卡片不在
 await reset(); await setMode({ insight_mode: "click-sidebar" });
@@ -173,14 +180,19 @@ pinBtn.fire("click", {});
 check("点图钉后变为已钉住", pinBtn.attrs?.["aria-pressed"] === "true", JSON.stringify(pinBtn.attrs));
 check("已钉住时说明会就地更新", pinBtn.title.includes("就地更新"), pinBtn.title);
 
-// 开始划新词：页面上的 mousedown 会先发生 —— 钉住的卡片必须挺住
-await setMode({ insight_mode: "auto" });
+// 开始划新词：页面上的 mousedown 会先发生 —— 钉住的卡片必须挺住。
+// 划词只弹浮标（不自动解读），点浮标才把结果就地更新进这张钉住的卡片。
 const seqBefore = env.replyCount || 0;
+const sentBefore = env.sent.length;
 select("second text"); env.fire("mousedown", { target: {} });
 await tick(40);
 check("钉住：点页面别处不会关掉卡片", env.appended.length === 1, String(env.appended.length));
 env.fire("mouseup", {});
-await tick(700);
+await tick(400);
+check("钉住：划新词只弹浮标，不自动发请求", env.sent.length === sentBefore, String(env.sent.length));
+check("钉住：浮标与卡片共存", env.appended.length === 2 && env.appended[0] === cardEl, String(env.appended.length));
+env.appended[1].fire("click", { preventDefault(){}, stopPropagation(){} });
+await tick(100);
 check("钉住：不新建卡片，还是同一张", env.appended.length === 1 && env.appended[0] === cardEl, String(env.appended.length));
 check("钉住：正文就地更新成新一次结果", allText(cardEl).includes(`ANSWER ${seqBefore + 1}`), allText(cardEl));
 check("钉住：结束后收起「更新中…」", cbar.children[2].style.display === "none", String(cbar.children[2].style.display));

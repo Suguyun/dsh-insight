@@ -7,8 +7,11 @@
 // 刻意不依赖侧栏：解读结果直接出现在你划词的地方，不需要任何 iframe、cookie 或
 // 鉴权。侧栏那边只是同步显示同一条记录（见 sidepanel.js）。
 //
-// 例外是「结果只进侧栏」的两种模式（click-sidebar / auto-sidebar）：侧栏没打开时
-// 结果没有任何地方能显示，这时整条链路直接跳过 —— 不发请求，也不弹浮标。
+// **划词本身从不发请求**：一次解读就是一次模型调用，自动触发等于每选一段文字就
+// 烧一次 token。只有点了浮标才解读，宁可多点一下。
+//
+// 例外是「结果只进侧栏」的模式（click-sidebar）：侧栏没打开时结果没有任何地方能
+// 显示，这时整条链路直接跳过 —— 不发请求，也不弹浮标。
 //
 // 样式全部用 CSSOM 逐条赋值（不用 <style> 标签），避免撞上页面的 CSP 与样式。
 //
@@ -98,9 +101,19 @@ try {
   // 所以自己读 storage。取值只认下面两个集合，其余（缺失、脏值）一律按默认的
   // 「点浮标 + 页面浮窗」走 —— 默认值因此只需要在设置页维护一份。
   const DEFAULT_LABEL = "解读";
-  const AUTO_MODES = new Set(["auto", "auto-sidebar"]);
-  const SIDEBAR_ONLY_MODES = new Set(["click-sidebar", "auto-sidebar"]);
+  // 模式只决定**结果落在哪**：页面浮窗还是只进侧栏。触发方式只有一种 —— 点浮标。
+  // 旧版还有 auto / auto-sidebar（划词即解读），那会为每段选区白跑一次模型；
+  // 这两种取值可能残留在老用户的存储里，读到就归一成对应的手动模式。
+  const MODES = new Set(["click", "click-sidebar"]);
+  const LEGACY_MODES = new Map([
+    ["auto", "click"],
+    ["auto-sidebar", "click-sidebar"],
+  ]);
+  const SIDEBAR_ONLY_MODES = new Set(["click-sidebar"]);
   const SETTING_KEYS = ["insight_label", "insight_mode", "insight_position"];
+
+  // 划词后多久确认「选区稳定了」。只弹浮标，不发请求，所以可以短一点。
+  const SETTLE_MS = 220;
 
   // 固定位置时统一留的边距。
   const FIXED_MARGIN = 16;
@@ -109,15 +122,20 @@ try {
   let mode = "click";
   let position = "follow";
 
-  const autoMode = () => AUTO_MODES.has(mode);
   const sidebarOnly = () => SIDEBAR_ONLY_MODES.has(mode);
+
+  /** 旧版自动模式 → 对应的手动模式；认不出的取值一律回落到默认。 */
+  function normalizeMode(raw) {
+    const next = LEGACY_MODES.get(raw) ?? raw;
+    return MODES.has(next) ? next : "click";
+  }
 
   function readSettings(stored) {
     if (stored === null || typeof stored !== "object") return;
     if (typeof stored.insight_label === "string" && stored.insight_label.trim() !== "") {
       label = stored.insight_label.trim();
     }
-    if (typeof stored.insight_mode === "string") mode = stored.insight_mode;
+    if (typeof stored.insight_mode === "string") mode = normalizeMode(stored.insight_mode);
     if (typeof stored.insight_position === "string") position = stored.insight_position;
   }
 
@@ -174,7 +192,7 @@ try {
   //
   // 扩展被重载/更新后，**已经打开的页面**里的内容脚本会和扩展失去联系：
   // chrome.runtime.id 变成 undefined，sendMessage 会抛 "Extension context
-  // invalidated"。这类失败用户完全看不见 —— auto-sidebar 模式下连卡片都没有，
+  // invalidated"。这类失败用户完全看不见 —— 只进侧栏的模式下连卡片都没有，
   // 表现就是「划了词，什么都没发生」。所以专门识别它，并在页面上说清原因。
 
   let notice = null;
@@ -634,7 +652,7 @@ try {
     try {
       // host 侧超时是 120 秒，这里比它略高一点兜底。没有这层的话，万一 sendMessage
       // 因为 service worker 被回收之类的原因永远不 settle，busy 会一直挂着 ——
-      // 那样整个自动解读就彻底哑了，而且表面上看不出原因。
+      // 那样之后点浮标就彻底哑了，而且表面上看不出原因。
       const reply = await Promise.race([
         chrome.runtime.sendMessage({
           type: "interpret",
@@ -650,7 +668,7 @@ try {
       ]);
       // skipped 不是失败，别污染诊断记录。
       if (reply?.skipped !== true) {
-        recordTrace({ event: autoMode() ? "auto" : "click", ok: reply?.ok === true, ms: Date.now() - started, error: reply?.ok === true ? "" : String(reply?.error ?? "") });
+        recordTrace({ event: "click", ok: reply?.ok === true, ms: Date.now() - started, error: reply?.ok === true ? "" : String(reply?.error ?? "") });
       }
       if (content !== null) {
         setCardBusy(false);
@@ -662,7 +680,7 @@ try {
       // 请求途中扩展被重载也会走到这里 —— 同样属于「孤儿」，给出能照做的提示。
       const orphaned = isOrphaned();
       if (orphaned) showOrphanNotice();
-      recordTrace({ event: autoMode() ? "auto" : "click", ok: false, ms: Date.now() - started, error: String(error?.message ?? error) });
+      recordTrace({ event: "click", ok: false, ms: Date.now() - started, error: String(error?.message ?? error) });
       if (content !== null) {
         setCardBusy(false);
         fillCardText(
@@ -675,8 +693,6 @@ try {
     } finally {
       if (timer !== null) window.clearTimeout(timer);
       busy = false;
-      // 排队中的那次选区（等这次期间用户选的）现在补上。
-      flushPendingAuto();
     }
   }
 
@@ -696,8 +712,8 @@ try {
   /**
    * 这次解读无处可显示：模式是「结果只进侧栏」，而侧栏没有打开。
    *
-   * 只有这两种 sidebarOnly 模式会命中。页面浮窗模式（click / auto）不受影响 ——
-   * 它们的结果就画在页面上，本来就不需要侧栏。
+   * 只有 sidebarOnly 模式会命中。页面浮窗模式（click）不受影响 ——
+   * 它的结果就画在页面上，本来就不需要侧栏。
    */
   function panelUnavailable() {
     return sidebarOnly() && !panelOpen;
@@ -706,13 +722,6 @@ try {
   // ---- 事件 ----
 
   let debounce = null;
-  // 自动模式下去重：selectionchange 会为同一段选区反复触发，不能每次都问一次模型。
-  let lastAutoText = null;
-  // 一次解读可能要十几到几十秒。这期间用户很可能已经选中了下一段文字 ——
-  // 以前 onSelectionSettled 开头直接 `if (busy) return`，那次选中就被永久丢掉了，
-  // 表现就是「选中新的不会解读，侧栏还停在旧的」。现在改成排队：只留最新的一次，
-  // 等当前这次结束后立刻处理。
-  let pendingAuto = null;
 
   /** 诊断：记下最近几次尝试的结果（和 content_ready 同一思路，出事不用靠猜）。只记元信息。 */
   function recordTrace(entry) {
@@ -807,25 +816,13 @@ try {
     recordTrace({ event: "skip-sidebar-closed", ok: false, ms: 0, error: "侧栏未展开，未发起解读" });
   }
 
-  /** 上一次结束后，把排队中的那次选区补上。 */
-  function flushPendingAuto() {
-    if (pendingAuto === null) return;
-    const next = pendingAuto;
-    pendingAuto = null;
-    lastAutoText = next.text;
-    void interpret(next.text, next.rect);
-  }
-
   function onSelectionSettled() {
-    // 注意：这里**不能**因为 busy 就提前 return —— 那正是丢事件的根源。计时器照排，
-    // 由计时器内部决定是执行还是排队。
     window.clearTimeout(debounce);
-    // 自动模式等久一点：拖选过程中会不断「稳定」，太灵敏会白跑好几次请求。
-    const wait = autoMode() ? 450 : 220;
+    // 拖选过程中选区会不断「稳定」，每次都处理会反复挪浮标，所以等停手再算。
     debounce = window.setTimeout(() => {
       traceSettleOnce();
-      // 在卡片里选字（多半是想复制）不是划词：既不解读，也别把排队的那次丢掉，
-      // 更不能被记成「抓不到选区」的诊断。
+      // 在卡片里选字（多半是想复制）不是划词：不弹浮标，更不能被记成
+      // 「抓不到选区」的诊断。
       if (selectionInsideCard(window.getSelection())) {
         clearBubble();
         return;
@@ -833,45 +830,29 @@ try {
       const selection = currentSelection();
       if (selection === undefined) {
         clearBubble();
-        lastAutoText = null;
-        pendingAuto = null; // 选区都取消了，排队的那次也没必要了
         // 极少数情况下确实存在选区却没接住 —— 记下原因，免得下次又只能靠猜。
         traceCaptureMissOnce();
         return;
       }
       // 扩展重载后本页的脚本已成孤儿：任何请求都注定失败，直接说清原因。
-      // （两种触发模式都要提示 —— 手动模式连浮标都不该弹出来。）
+      // （连浮标都不该弹出来 —— 点了也只会失败。）
       if (isOrphaned()) {
         clearBubble();
         showOrphanNotice();
         return;
       }
-      // 只能进侧栏、而侧栏没开：既不发请求，也不弹浮标（弹了也只会点了没反应）。
-      // 必须放在 auto 分支之前 —— 否则 lastAutoText 会被记成「已解读」，打开侧栏
-      // 后再选同一段文字就不会触发了。
+      // 只能进侧栏、而侧栏没开：既不弹浮标也不发请求（弹了也只会点了没反应）。
       if (panelUnavailable()) {
         clearBubble();
-        lastAutoText = null;
-        pendingAuto = null;
         tracePanelSkipOnce();
         return;
       }
-      if (autoMode()) {
-        // 划词即解读：不弹浮标，直接发请求。
-        if (selection.text === lastAutoText) return;
-        if (busy) {
-          // 上一次还在跑：记下来，等它结束立刻补上（只留最新的一次）。
-          pendingAuto = { text: selection.text, rect: selection.rect };
-          return;
-        }
-        lastAutoText = selection.text;
-        void interpret(selection.text, selection.rect);
-        return;
-      }
-      // 手动模式：解析中不弹浮标（省得点了一个正在跑的东西）。
+      // 解析中不弹浮标（省得点了一个正在跑的东西）。
       if (busy) return;
+      // 只弹浮标 —— 请求要等用户点它才发。这是刻意保留的一步：自动解读会让
+      // 每一次划词都变成一次模型调用，token 消耗完全不受控。
       showBubble(selection);
-    }, wait);
+    }, SETTLE_MS);
   }
 
   document.addEventListener("mouseup", (event) => {

@@ -27,7 +27,8 @@ globalThis.document = {
 };
 globalThis.window = { confirm: () => true, setTimeout: (fn, ms) => setTimeout(fn, ms), location: { search: "" } };
 
-const store = {};
+// 旧值 auto：设置页必须把它显示成 click（下拉里已经没有 auto 这一项了）。
+const store = { insight_mode: "auto" };
 globalThis.chrome = {
   storage: {
     local: {
@@ -64,6 +65,9 @@ const check = (name, cond, extra = "") => {
 };
 const optionValues = () => el("preset").children.map((c) => c.value);
 const optionLabels = () => el("preset").children.map((c) => c.textContent);
+
+console.log("0) 旧值 auto 归一：设置页显示成 click");
+check("旧值 auto 回显为 click", el("mode").value === "click", el("mode").value);
 
 console.log("1) 初始下拉（内置 + 新建项）");
 check("含 default/tldr/新建", JSON.stringify(optionValues()) === JSON.stringify(["default","tldr","__new__"]), JSON.stringify(optionValues()));

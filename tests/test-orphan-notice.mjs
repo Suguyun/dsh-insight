@@ -13,7 +13,7 @@ class El { constructor(t){this.tag=t;this.style={};this.children=[];this.handler
   addEventListener(t,h){(this.handlers[t]||=[]).push(h);} fire(t,ev={}){for(const h of this.handlers[t]||[])h(ev);} }
 globalThis.Element = class {};
 
-const store = { insight_mode: "auto" };
+const store = { insight_mode: "click" };
 const env = { appended: [], sent: [], listeners: {}, selection: null, visibility: "hidden" };
 globalThis.document = {
   title: "T", visibilityState: "hidden",
@@ -40,10 +40,14 @@ await tick(60);
 let pass = 0, fail = 0;
 const check = (n, c, extra = "") => { if (c) { pass++; console.log(`  ok   ${n}`); } else { fail++; console.log(`  FAIL ${n} ${extra}`); } };
 
-console.log("1) 健康：划词正常发请求，不出现提示");
+console.log("1) 健康：划词弹浮标，点浮标才发请求，不出现提示");
 select("healthy text"); fire("mouseup");
-await tick(700);
-check("发出了请求", env.sent.length === 1, String(env.sent.length));
+await tick(400);
+check("划词本身不发请求", env.sent.length === 0, String(env.sent.length));
+const badge = env.appended.find((el) => !(el.textContent || "").includes("刷新本页"));
+badge?.fire("click", { preventDefault() {}, stopPropagation() {} });
+await tick(120);
+check("点浮标后发出了请求", env.sent.length === 1, String(env.sent.length));
 check("没有刷新提示", noticeCount() === 0, String(noticeCount()));
 
 console.log("2) 变成孤儿：不再发请求，改为页面提示");

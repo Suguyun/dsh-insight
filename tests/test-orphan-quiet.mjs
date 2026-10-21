@@ -5,7 +5,7 @@
 // 不会有任何反应（见 panel-gate），再弹一条横幅纯属噪声 —— 而且违背了
 // 「只进侧栏」模式下页面保持干净的约定。
 //
-// 页面浮窗模式（click / auto）不受这条限制：那种模式本来就会在页面上出东西，
+// 页面浮窗模式（click）不受这条限制：那种模式本来就会在页面上出东西，
 // 缺了它需要解释。那条路径由 test-orphan-notice.mjs 覆盖。
 
 // ── 测试用路径解析：仓库任意位置 clone 后都能直接跑 ──────────────
@@ -27,7 +27,8 @@ class El {
 }
 globalThis.Element = class {};
 
-// 起始状态：只进侧栏 + 侧栏关闭 —— 正是用户报的那一组
+// 起始状态：只进侧栏 + 侧栏关闭 —— 正是用户报的那一组。
+// 这里顺手用旧值 auto-sidebar：它归一后就是 click-sidebar，行为必须一致。
 const store = { insight_mode: "auto-sidebar" };
 // appended 会随横幅自动消失被移除；everAppended 只增不减，用来断言「曾经出现过」。
 const env = { appended: [], everAppended: [], sent: [], listeners: {}, selection: null, panelListeners: [], changeListeners: [] };
@@ -140,7 +141,7 @@ await tick(80);
 
 console.log("5) 页面浮窗模式 + 侧栏关闭：仍然要提示（那种模式本该在页面上出东西）");
 await pushPanel(false);
-await setMode("auto");
+await setMode("click");
 await clear();
 select("page card mode"); fire("mouseup");
 await tick(700);

@@ -247,7 +247,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   (async () => {
     const started = Date.now();
     // 先告诉侧栏「开始了」。一次解读要十几秒（实测有过 20 秒），这期间面板上
-    // 什么动静都没有，很容易被当成没反应 —— 尤其 auto-sidebar 模式下页面里
+    // 什么动静都没有，很容易被当成没反应 —— 尤其「只进侧栏」的模式下页面里
     // 本来就没有任何 UI。
     toPanel({
       type: "insight-pending",
