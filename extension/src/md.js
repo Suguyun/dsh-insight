@@ -221,7 +221,7 @@ function blocks(source) {
  * 把 Markdown 渲染进 container（会先清空）。
  * 渲染过程意外抛错时退回纯文本，宁可不好看也不能把内容吞掉。
  */
-export function renderMarkdown(container, source) {
+function renderMarkdown(container, source) {
   const text = typeof source === "string" ? source : "";
   try {
     container.replaceChildren(...blocks(text));
@@ -229,3 +229,107 @@ export function renderMarkdown(container, source) {
     container.textContent = text;
   }
 }
+
+// ---- 页面浮窗版：渲染 + 内联样式 ----
+//
+// 侧栏有样式表，这里没有 —— 内容脚本是 classic script，注入 <style> 又可能撞上页面
+// 的 CSP，所以浮窗里的每个元素只能靠 CSSOM 逐条写行内样式。
+
+function cardColors(dark) {
+  return dark
+    ? { muted: "#8b949e", border: "#3d444d", inset: "#0d1117", accent: "#8b85f0" }
+    : { muted: "#6a737d", border: "#d1d9e0", inset: "#f6f8fa", accent: "#5048e4" };
+}
+
+const MONO = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+
+/** 给一个已渲染的节点树套上浮窗样式。 */
+function styleCardTree(root, dark) {
+  const c = cardColors(dark);
+  const all = root.querySelectorAll("*");
+  for (let i = 0; i < all.length; i += 1) {
+    const node = all[i];
+    const s = node.style;
+    const tag = node.tagName.toLowerCase();
+    const isLast = node === root.lastElementChild;
+    if (tag === "p") {
+      s.margin = isLast ? "0" : "0 0 8px";
+    } else if (tag === "h1" || tag === "h2" || tag === "h3" || tag === "h4" || tag === "h5" || tag === "h6") {
+      s.margin = isLast ? "0" : "10px 0 6px";
+      s.fontWeight = "650";
+      s.lineHeight = "1.3";
+      s.fontSize = tag === "h1" ? "1.25em" : tag === "h2" ? "1.15em" : "1.05em";
+    } else if (tag === "strong") {
+      s.fontWeight = "650";
+    } else if (tag === "em") {
+      s.fontStyle = "italic";
+    } else if (tag === "del") {
+      s.textDecoration = "line-through";
+      s.opacity = "0.7";
+    } else if (tag === "code") {
+      s.fontFamily = MONO;
+      s.fontSize = "0.92em";
+      // 代码块里的 code 不再加底色（外层 pre 已经有一层）
+      const inPre = node.parentElement !== null && node.parentElement.tagName.toLowerCase() === "pre";
+      if (inPre) {
+        s.background = "transparent";
+        s.padding = "0";
+      } else {
+        s.background = c.inset;
+        s.padding = "1px 4px";
+        s.borderRadius = "4px";
+      }
+    } else if (tag === "pre") {
+      s.margin = isLast ? "0" : "0 0 8px";
+      s.padding = "8px 10px";
+      s.background = c.inset;
+      s.border = `1px solid ${c.border}`;
+      s.borderRadius = "8px";
+      s.overflowX = "auto";
+      s.whiteSpace = "pre";
+      // 卡片外壳带 word-break: break-word，会继承进来把长代码行折行；
+      // 代码块要的是横向滚动，不是折行。
+      s.wordBreak = "normal";
+      s.overflowWrap = "normal";
+      s.fontFamily = MONO;
+      s.fontSize = "0.92em";
+      s.lineHeight = "1.45";
+    } else if (tag === "ul" || tag === "ol") {
+      s.margin = isLast ? "0" : "0 0 8px";
+      s.paddingLeft = "20px";
+    } else if (tag === "li") {
+      s.margin = "2px 0";
+    } else if (tag === "blockquote") {
+      s.margin = isLast ? "0" : "0 0 8px";
+      s.paddingLeft = "9px";
+      s.borderLeft = `3px solid ${c.border}`;
+      s.color = c.muted;
+    } else if (tag === "hr") {
+      s.border = "0";
+      s.borderTop = `1px solid ${c.border}`;
+      s.margin = "10px 0";
+    } else if (tag === "a") {
+      s.color = c.accent;
+      s.textDecoration = "underline";
+    }
+  }
+}
+
+/**
+ * 浮窗用的渲染：渲染 + 套样式。
+ * @param container 目标元素
+ * @param source Markdown 文本
+ * @param dark 是否深色主题
+ */
+function renderMarkdownForCard(container, source, dark) {
+  renderMarkdown(container, source);
+  try {
+    styleCardTree(container, dark === true);
+  } catch {}
+}
+
+// 内容脚本是 classic script（MV3 不支持模块化内容脚本），不能 import 本文件；
+// 所以这里既不用 export，也不只服务模块 —— 挂到 globalThis 让两条路径都能用：
+//   - 侧栏 sidepanel.js：`import "./md.js"` 副作用导入后从 globalThis 取
+//   - 内容脚本 selection.js：manifest 里排在前面直接注入，同样从 globalThis 取
+globalThis.dshInsightMd = { renderMarkdown, renderMarkdownForCard };

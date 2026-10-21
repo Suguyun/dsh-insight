@@ -7,16 +7,31 @@ import { pathToFileURL } from "node:url";
 const URL_ = pathToFileURL(`${SRC_DIR}/selection.js`).href;
 const tick = (ms) => new Promise((r) => setTimeout(r, ms));
 
-class El { constructor(t){this.tag=t;this.style={};this.children=[];this.handlers={};this.textContent="";this.parentNode=null;}
-  setAttribute(){} appendChild(c){this.children.push(c);c.parentNode=this;}
+// md.js 用 document.createTextNode 造文本，并用 `instanceof Node` 区分元素与文本；
+// 少了这两样，渲染会一路抛错再被 try/catch 兜成纯文本 —— 看着"能跑"，其实没渲染。
+class Node {}
+class TextNode extends Node { constructor(t){ super(); this.textContent = String(t); } }
+class El extends Node {
+  constructor(t){ super(); this.tag=t; this.style={}; this.children=[]; this.handlers={}; this.parentNode=null; this.parentElement=null; }
+  get tagName(){ return this.tag.toUpperCase(); }
+  setAttribute(){}
+  append(c){ if (c == null) return; c.parentNode = this; c.parentElement = this; this.children.push(c); }
+  appendChild(c){ this.append(c); }
+  replaceChildren(...cs){ this.children = []; for (const c of cs) this.append(c); }
+  set textContent(v){ this.children = []; if (v !== "") this.children.push(new TextNode(v)); }
+  get lastElementChild(){ for (let i=this.children.length-1;i>=0;i-=1) if (this.children[i] instanceof El) return this.children[i]; return null; }
+  querySelectorAll(sel){ if (sel !== "*") throw new Error("只支持 *"); const out=[];
+    const walk=(n)=>{ for (const c of n.children) if (c instanceof El) { out.push(c); walk(c); } }; walk(this); return out; }
   addEventListener(t,h){(this.handlers[t]||=[]).push(h);}
   fire(t,ev={}){for(const h of this.handlers[t]||[])h(ev);} }
 globalThis.Element = class {};
 
 const store = {};
 const env = { appended: [], sent: [], listeners: {}, selection: null, onChanged: [] };
+globalThis.Node = Node;
 globalThis.document = {
   title: "T",
+  createTextNode: (t) => new TextNode(t),
   documentElement: { appendChild: (el) => { env.appended.push(el); el.parentNode = { removeChild: () => { const i = env.appended.indexOf(el); if (i >= 0) env.appended.splice(i,1); } }; } },
   createElement: (t) => new El(t),
   addEventListener: (t, h) => { (env.listeners[t] ||= []).push(h); },
@@ -32,16 +47,18 @@ globalThis.chrome = {
     get: async (keys) => { const l=Array.isArray(keys)?keys:[keys]; const o={}; for(const k of l) if(k in store)o[k]=store[k]; return o; },
     set: async (o) => Object.assign(store, o) },
     onChanged: { addListener: (fn) => env.onChanged.push(fn) } },
-  runtime: { id: "test-ext", onMessage: { addListener() {} }, sendMessage: async (m) => { if (m?.type === "panel-state-query") return { open: true }; env.sent.push(m); return { ok: true, text: "ANSWER" }; } },
+  runtime: { id: "test-ext", onMessage: { addListener() {} }, sendMessage: async (m) => { if (m?.type === "panel-state-query") return { open: true }; env.sent.push(m); return { ok: true, text: "**ANSWER** 和 `code`" }; } },
 };
 env.fire = (t, ev) => { for (const h of env.listeners[t] || []) h(ev); };
 
+await import(pathToFileURL(`${SRC_DIR}/md.js`).href); // 卡片渲染依赖它挂的 globalThis
 await import(URL_);          // 只导入一次：query 不同不会产生新实例，不能靠它切场景
 await tick(40);
 
 let pass = 0, fail = 0;
 const check = (n, c, extra = "") => { if (c) { pass++; console.log(`  ok   ${n}`); } else { fail++; console.log(`  FAIL ${n} ${extra}`); } };
-const allText = (el) => (el.textContent || "") + el.children.map(allText).join("");
+const allText = (el) => (el.textContent || "") + (el.children || []).map(allText).join("");
+const deepTags = (el, acc = []) => { for (const c of el.children || []) if (c instanceof El) { acc.push(c.tag); deepTags(c, acc); } return acc; };
 const select = (text) => { env.selection = { isCollapsed:false, toString:()=>text,
   getRangeAt:()=>({ getBoundingClientRect:()=>({left:100,right:300,top:200,bottom:220,width:200,height:20}) }) }; };
 
@@ -69,6 +86,15 @@ check("默认模式：不自动请求", env.sent.length === 0);
 env.appended[0].fire("click", { preventDefault(){}, stopPropagation(){} });
 await tick(60);
 check("点浮标后请求 + 卡片有结果", env.sent.length === 1 && allText(env.appended[0]).includes("ANSWER"));
+// 回归：卡片正文必须真的渲染成元素，不能把 ** 和 ` 当字面量显示出来
+const cardTags = deepTags(env.appended[0]);
+check("卡片渲染 Markdown：有 strong", cardTags.includes("strong"), JSON.stringify(cardTags));
+check("卡片渲染 Markdown：有 code", cardTags.includes("code"), JSON.stringify(cardTags));
+check("卡片不泄漏 ** 字面量", !allText(env.appended[0]).includes("**"), allText(env.appended[0]));
+check("卡片不泄漏 ` 字面量", !allText(env.appended[0]).includes("`"), allText(env.appended[0]));
+// 浮窗里没有样式表：样式必须写成行内样式，否则等于没渲染
+const strongEl = env.appended[0].querySelectorAll("*").find((n) => n.tag === "strong");
+check("卡片给 strong 套了行内样式", strongEl !== undefined && strongEl.style.fontWeight === "650", JSON.stringify(strongEl?.style));
 
 // 2) auto：划词即解读，不弹浮标，同一段文字只一次
 await reset(); await setMode({ insight_mode: "auto" });
@@ -103,6 +129,21 @@ await tick(400);
 const b = env.appended[0];
 check("fixed：用 right/bottom", b.style.right === "16px" && b.style.bottom === "16px", JSON.stringify(b.style));
 check("fixed：不再用 left/top", b.style.left === undefined && b.style.top === undefined);
+
+// 6) md.js 取不到时（比如扩展刚更新、manifest 注入还没生效）不能把内容弄丢
+await reset(); await setMode({ insight_mode: "click", insight_position: "auto" });
+const savedMd = globalThis.dshInsightMd;
+delete globalThis.dshInsightMd;
+try {
+  select("fallback text"); env.fire("mouseup", {});
+  await tick(400);
+  env.appended[0].fire("click", { preventDefault(){}, stopPropagation(){} });
+  await tick(60);
+  const text = allText(env.appended[0]);
+  check("没有 md.js 时退回纯文本，内容还在", text.includes("**ANSWER**"), text);
+} finally {
+  globalThis.dshInsightMd = savedMd;
+}
 
 console.log(`\n结果：${pass} 通过 / ${fail} 失败`);
 process.exit(fail === 0 ? 0 : 1);

@@ -3,6 +3,46 @@
 本项目 fork 自 [stuarthu/dsh-chrome](https://github.com/stuarthu/dsh-chrome) v0.1.3（MIT）。
 以下记录本 fork 相对上游的全部变更。
 
+## 0.1.10
+
+### 修复
+
+- **页面浮窗现在会渲染 Markdown 了**（此前是把原文直接塞进 `textContent`，
+  所以 `**加粗**`、围栏代码块、列表都按字面量显示成一堆星号和反引号）。
+
+  侧栏一直是有渲染的 —— 它有样式表和 `md.js`。页面浮窗没有，因为内容脚本
+  不能 `import`：MV3 的内容脚本是 **classic script**，不支持 ES 模块。
+
+  于是把 `md.js` 改成两边都能用的形态：
+
+  | | 侧栏（`sidepanel.js`，扩展页面） | 页面浮窗（`selection.js`，内容脚本） |
+  | --- | --- | --- |
+  | 加载方式 | `import "./md.js"`（副作用导入） | manifest `content_scripts.js` 注入 |
+  | 取名方式 | `globalThis.dshInsightMd` | 同左 |
+  | 渲染入口 | `renderMarkdown` | `renderMarkdownForCard` |
+
+  代价是 `md.js` 不能再 `export`，否则被当成 classic script 注入时会直接语法报错；
+  注入顺序也必须在 `manifest.json` 里把它排在 `selection.js` **之前**，否则后者
+  拿不到 `globalThis.dshInsightMd`。
+
+  浮窗里没有样式表，写 `<style>` 又可能撞上页面的 CSP，所以
+  `renderMarkdownForCard` 在渲染完只对**卡片内部**的节点逐条写行内样式
+  （标题、加粗、行内代码、代码块、列表、引用、分隔线、链接），并按深浅色分别取色。
+  这不会影响页面本身的样式。
+
+  两个细节：
+
+  - 卡片外壳原来带 `white-space: pre-wrap`，现在挪到正文容器上，渲染 Markdown 时
+    再翻回 `normal` —— 否则源码里的软换行会被当成硬换行，段落会碎掉。
+  - 渲染失败时退回纯文本（`md.js` 内部 `try/catch`），样式套用失败也不影响正文，
+    宁可不好看也不能把内容吞掉。
+
+### 测试
+
+- `tests/test-md.mjs` 从「打印渲染结果」升级为 36 条断言，覆盖侧栏渲染与浮窗渲染
+  两侧：标记不泄漏、注入标签被转义、`javascript:` 链接不生成 `a`、`md.js` 里不能出现
+  `export`、manifest 注入顺序、深浅色取值不同、样式套用失败时正文仍在。
+
 ## 0.1.9
 
 ### 修复

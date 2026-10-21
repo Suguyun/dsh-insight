@@ -7,7 +7,11 @@
 // 划词流程：网页内容脚本 → service worker 的 /dsh-insight 请求 → 结果同时回到
 // 页面上的卡片和这里（background 会广播 { type: "insight", record }）。
 
-import { renderMarkdown } from "./md.js";
+// md.js 不能既 export 又当 classic script 用（内容脚本要注入它），所以它不导出符号，
+// 只挂 globalThis；这里做一次副作用导入再从全局取。
+import "./md.js";
+
+const { renderMarkdown } = globalThis.dshInsightMd;
 import {
   applyAppearance,
   loadAppearance,

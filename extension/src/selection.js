@@ -388,7 +388,6 @@ try {
       border: `1px solid ${isDark ? "#3d444d" : "#d1d9e0"}`,
       borderRadius: "10px",
       boxShadow: "0 6px 24px rgba(0,0,0,.22)",
-      whiteSpace: "pre-wrap",
       wordBreak: "break-word",
     });
 
@@ -427,7 +426,9 @@ try {
     bar.appendChild(label);
     bar.appendChild(close);
 
-    const content = make("div", {}, body);
+    // 正文默认按纯文本排版（"解读中…"、跳过、报错都走这条路）；
+    // 渲染 Markdown 时 fillCardMarkdown 会把它翻回 normal 并逐元素套样式。
+    const content = make("div", { whiteSpace: "pre-wrap" }, body);
     shell.appendChild(bar);
     shell.appendChild(content);
 
@@ -445,6 +446,28 @@ try {
     document.documentElement.appendChild(shell);
     card = shell;
     return content;
+  }
+
+  /** 卡片正文填纯文本 —— 占位、跳过、报错走这条路。 */
+  function fillCardText(content, text) {
+    content.style.whiteSpace = "pre-wrap";
+    content.textContent = text;
+  }
+
+  /**
+   * 卡片正文渲染 Markdown。
+   * 浮窗里没有样式表，样式由 md.js 逐元素写成行内样式（见 renderMarkdownForCard）。
+   */
+  function fillCardMarkdown(content, text) {
+    content.style.whiteSpace = "normal";
+    const md = globalThis.dshInsightMd;
+    // 正常情况 manifest 保证 md.js 先注入；扩展刚被更新/卸载的瞬间可能取不到，
+    // 这时退回纯文本，总比把内容吞掉强。
+    if (md === undefined) {
+      fillCardText(content, text);
+      return;
+    }
+    md.renderMarkdownForCard(content, text, dark());
   }
 
   async function interpret(text, anchorRect) {
@@ -485,12 +508,9 @@ try {
         recordTrace({ event: autoMode() ? "auto" : "click", ok: reply?.ok === true, ms: Date.now() - started, error: reply?.ok === true ? "" : String(reply?.error ?? "") });
       }
       if (content !== null) {
-        content.textContent =
-          reply?.skipped === true
-            ? "侧栏未打开，已跳过。"
-            : reply?.ok === true
-              ? reply.text
-              : `解读失败：${String(reply?.error ?? "未知错误")}`;
+        if (reply?.ok === true) fillCardMarkdown(content, String(reply.text ?? ""));
+        else if (reply?.skipped === true) fillCardText(content, "侧栏未打开，已跳过。");
+        else fillCardText(content, `解读失败：${String(reply?.error ?? "未知错误")}`);
       }
     } catch (error) {
       // 请求途中扩展被重载也会走到这里 —— 同样属于「孤儿」，给出能照做的提示。
@@ -498,9 +518,12 @@ try {
       if (orphaned) showOrphanNotice();
       recordTrace({ event: autoMode() ? "auto" : "click", ok: false, ms: Date.now() - started, error: String(error?.message ?? error) });
       if (content !== null) {
-        content.textContent = orphaned
-          ? "解读失败：扩展已更新，请刷新本页后重试。"
-          : `解读失败：${String(error?.message ?? error)}`;
+        fillCardText(
+          content,
+          orphaned
+            ? "解读失败：扩展已更新，请刷新本页后重试。"
+            : `解读失败：${String(error?.message ?? error)}`,
+        );
       }
     } finally {
       if (timer !== null) window.clearTimeout(timer);

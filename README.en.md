@@ -19,7 +19,7 @@ Four trigger/display modes:
 | `auto` | interpret on select (~0.45 s after you stop) | floating card on the page |
 | `auto-sidebar` | interpret on select | side panel only, nothing appears on the page |
 
-The same text is only interpreted once. When you keep selecting, newer selections **queue up and supersede** older ones instead of being dropped mid-flight. The floating card can either follow the selection or stay pinned to the bottom-right.
+The same text is only interpreted once. When you keep selecting, newer selections **queue up and supersede** older ones instead of being dropped mid-flight. The floating card can either follow the selection or stay pinned to the bottom-right. Answers in that card are **rendered as Markdown** as well, with inline styles so the page's CSS cannot interfere.
 
 **When the side panel is closed, the two sidebar-only modes above do not interpret at all** — and no badge appears either. There is nowhere to show the result, so firing a model call would be pointless. The two page-card modes are unaffected: their result is drawn on the page and never needed the side panel.
 
@@ -194,7 +194,7 @@ cd dsh-insight
 node tests/run.mjs      # or: npm test
 ```
 
-`tests/` holds 17 self-contained suites (**168** assertions across those that report counts) covering trigger modes, the sidebar-open gate, the request queue, the orphaned-content-script guard, panel views and follow-ups, Markdown rendering, the options page, presets, capture redaction and the installer's target layout.
+`tests/` holds 21 self-contained suites (17 of them report assertion counts, **287** in total; 2 need an installed dsh and SKIP otherwise) covering trigger modes, the sidebar-open gate, the request queue, the orphaned-content-script guard, panel views and follow-ups, Markdown rendering, the options page, presets, capture redaction and the installer's target layout.
 
 Each suite ships its own DOM / chrome API stubs and imports repository sources directly — no build step. `test-host-mt` and `test-presets` exercise `host/insight.js` and need dsh's `@deepseek-ai/dsh-llm` to resolve; in a bare clone they print `SKIP` and count as skipped rather than failing.
 
