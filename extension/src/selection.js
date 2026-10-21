@@ -76,6 +76,13 @@ try {
   let card = null;
   let busy = false;
 
+  // 卡片上「钉住」的状态与卡片零件。钉住之后：
+  //   - 点页面别处不会把卡片收掉（只收浮标）
+  //   - 再划新词时**不新建卡片**，直接把结果就地更新进这张卡
+  // 所以卡片一旦被替换/关闭，这些引用要一起清掉，否则会往已脱离文档的节点里写内容。
+  let cardParts = null;
+  let cardPinned = false;
+
   // 最近一次鼠标位置。Range 的几何信息在某些页面是坏的（见 anchorRect），那时用它兜底，
   // 否则浮标会带着 "NaNpx" 的 left/top 插进文档 —— 无效值被浏览器忽略，浮标就此消失。
   let lastPointer = null;
@@ -154,6 +161,8 @@ try {
   function clearCard() {
     drop(card);
     card = null;
+    cardParts = null;
+    cardPinned = false;
   }
 
   function clearAll() {
@@ -276,6 +285,23 @@ try {
   }
 
   /**
+   * 选区是不是落在我们自己的卡片/浮标里。
+   *
+   * 钉住卡片之后，从卡片正文里选一段文字复制是很自然的动作 —— 但那也是一次
+   * 「选中文字」，不去管它就会拿卡片自己的文字再发一次解读，把卡片内容顶掉。
+   */
+  function selectionInsideCard(selection) {
+    try {
+      if (selection.rangeCount === 0) return false;
+      const node = selection.getRangeAt(0).commonAncestorContainer;
+      const el = node !== null && node.nodeType === 1 ? node : node?.parentElement;
+      return el instanceof Element && el.closest("[data-dsh-insight]") !== null;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * 当前选区。只有在**确实没有文字**时才返回 undefined。
    *
    * 两个「不」：
@@ -290,6 +316,7 @@ try {
     if (selection === null || selection === undefined) return undefined;
     const text = selection.toString().trim();
     if (text.length < MIN_TEXT) return undefined;
+    if (selectionInsideCard(selection)) return undefined;
     let rect;
     try {
       rect = anchorRectFor(selection.getRangeAt(0));
@@ -369,6 +396,81 @@ try {
 
   // ---- 卡片 ----
 
+  /** 钉住/取消钉住时的外观，以及按钮上的说明文字。 */
+  function syncPin() {
+    if (cardParts === null) return;
+    const pin = cardParts.pin;
+    // 彩色图钉 = 已钉住，灰色 = 未钉住。比只改透明度更好认。
+    pin.style.opacity = cardPinned ? "1" : "0.4";
+    pin.style.filter = cardPinned ? "none" : "grayscale(1)";
+    pin.style.borderRadius = "5px";
+    pin.setAttribute("aria-pressed", cardPinned ? "true" : "false");
+    pin.title = cardPinned
+      ? "已钉住：再划新词会就地更新这张卡片（点击取消钉住）"
+      : "钉住：卡片不会消失，划新词时就地更新解读";
+  }
+
+  /** 请求在飞的时候，标题栏右侧显示「更新中…」，正文保留上一次的结果不闪。 */
+  function setCardBusy(on) {
+    if (cardParts === null) return;
+    cardParts.hint.style.display = on ? "" : "none";
+  }
+
+  /**
+   * 让标题栏可以按住拖动。
+   *
+   * 只认标题栏：正文是可选中的文字，整卡可拖会和「划词复制」打架。
+   * 用 pointer capture 而不是 window 上的 move 监听 —— 拖到 iframe 上方时，
+   * 事件会被那个帧的文档吃掉，window 监听会直接断掉。
+   */
+  function enableDrag(shell, bar) {
+    const clamp = (v, max) => (Number.isFinite(v) ? Math.min(Math.max(0, v), Math.max(0, max)) : 0);
+    let drag = null;
+
+    bar.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) return;
+      const target = event.target;
+      // 图钉和关闭不参与拖动
+      if (target instanceof Element && target.closest("button") !== null) return;
+      const rect = shell.getBoundingClientRect();
+      drag = { id: event.pointerId, dx: event.clientX - rect.left, dy: event.clientY - rect.top };
+      // 可能停在「右下角固定」的模式下：先换成 left/top，否则一按就跳一下
+      shell.style.right = "auto";
+      shell.style.bottom = "auto";
+      shell.style.left = `${String(rect.left)}px`;
+      shell.style.top = `${String(rect.top)}px`;
+      bar.style.cursor = "grabbing";
+      try {
+        bar.setPointerCapture(event.pointerId);
+      } catch {}
+      // 别让页面从标题栏开始选字，也别让页面的 mousedown 抢走这次按下
+      event.preventDefault();
+      event.stopPropagation();
+    });
+
+    const move = (event) => {
+      if (drag === null || event.pointerId !== drag.id) return;
+      const maxX = window.innerWidth - (shell.offsetWidth || 0);
+      const maxY = window.innerHeight - (shell.offsetHeight || 0);
+      shell.style.left = `${String(clamp(event.clientX - drag.dx, maxX))}px`;
+      shell.style.top = `${String(clamp(event.clientY - drag.dy, maxY))}px`;
+      event.preventDefault();
+    };
+    const end = (event) => {
+      if (drag === null || event.pointerId !== drag.id) return;
+      drag = null;
+      bar.style.cursor = "grab";
+      try {
+        bar.releasePointerCapture(event.pointerId);
+      } catch {}
+    };
+    // pointer capture 之后 move/up 都会回到 bar 上，所以监听在 bar 就够。
+    bar.addEventListener("pointermove", move);
+    bar.addEventListener("pointerup", end);
+    bar.addEventListener("pointercancel", end);
+  }
+
+  /** 新建一张卡片。 */
   function showCard(anchorRect, body) {
     clearBubble();
     clearCard();
@@ -396,7 +498,20 @@ try {
       alignItems: "center",
       gap: "8px",
       marginBottom: "6px",
+      cursor: "grab",
+      // 标题栏是拖动把手：别让浏览器把这里当成可选中文字，触摸下也别滚动页面
+      userSelect: "none",
+      touchAction: "none",
     });
+    // 把手的视觉提示：不写这个，没人知道标题栏可以拖。
+    const grip = make("span", {
+      flex: "0 0 auto",
+      fontSize: "11px",
+      lineHeight: "1",
+      letterSpacing: "1px",
+      color: isDark ? "#8b949e" : "#6a737d",
+      opacity: "0.7",
+    }, "⠿");
     const label = make(
       "span",
       {
@@ -408,22 +523,36 @@ try {
       },
       "dsh 解读",
     );
-    const close = make(
-      "button",
-      {
-        border: "0",
-        background: "transparent",
-        color: isDark ? "#8b949e" : "#6a737d",
-        cursor: "pointer",
-        font: "14px/1 system-ui, sans-serif",
-        padding: "2px 4px",
-      },
-      "✕",
-    );
+    const hint = make("span", {
+      flex: "0 0 auto",
+      fontSize: "11px",
+      color: isDark ? "#8b949e" : "#6a737d",
+      display: "none",
+    }, "更新中…");
+    const buttonStyle = {
+      border: "0",
+      background: "transparent",
+      color: isDark ? "#8b949e" : "#6a737d",
+      cursor: "pointer",
+      font: "13px/1 system-ui, sans-serif",
+      padding: "2px 4px",
+      flex: "0 0 auto",
+    };
+    const pin = make("button", buttonStyle, "📌");
+    pin.addEventListener("click", () => {
+      cardPinned = !cardPinned;
+      syncPin();
+    });
+    const close = make("button", { ...buttonStyle, font: "14px/1 system-ui, sans-serif" }, "✕");
+    close.title = "关闭（Esc）";
     close.addEventListener("click", () => {
       clearCard();
     });
+    bar.title = "按住拖动";
+    bar.appendChild(grip);
     bar.appendChild(label);
+    bar.appendChild(hint);
+    bar.appendChild(pin);
     bar.appendChild(close);
 
     // 正文默认按纯文本排版（"解读中…"、跳过、报错都走这条路）；
@@ -443,9 +572,25 @@ try {
       shell.style.left = `${String(left)}px`;
       shell.style.top = `${String(Math.max(12, Math.min(window.innerHeight - 120, below)))}px`;
     }
+    enableDrag(shell, bar);
     document.documentElement.appendChild(shell);
     card = shell;
+    cardParts = { content, pin, hint, label, bar };
+    syncPin();
     return content;
+  }
+
+  /**
+   * 开一张卡片：钉住的卡片就地复用，否则新建一张。
+   * 复用时不写占位文案 —— 那会让正文闪成「解读中…」，钉住的意义就没了。
+   */
+  function openCard(anchorRect, placeholder) {
+    if (card !== null && cardPinned && cardParts !== null) {
+      clearBubble();
+      setCardBusy(true);
+      return cardParts.content;
+    }
+    return showCard(anchorRect, placeholder);
   }
 
   /** 卡片正文填纯文本 —— 占位、跳过、报错走这条路。 */
@@ -483,7 +628,7 @@ try {
     // 就没人收，会留一个点过的按钮挂在页面上。
     let content = null;
     if (sidebarOnly()) clearBubble();
-    else content = showCard(anchorRect, "解读中…");
+    else content = openCard(anchorRect, "解读中…");
     const started = Date.now();
     let timer = null;
     try {
@@ -508,6 +653,7 @@ try {
         recordTrace({ event: autoMode() ? "auto" : "click", ok: reply?.ok === true, ms: Date.now() - started, error: reply?.ok === true ? "" : String(reply?.error ?? "") });
       }
       if (content !== null) {
+        setCardBusy(false);
         if (reply?.ok === true) fillCardMarkdown(content, String(reply.text ?? ""));
         else if (reply?.skipped === true) fillCardText(content, "侧栏未打开，已跳过。");
         else fillCardText(content, `解读失败：${String(reply?.error ?? "未知错误")}`);
@@ -518,6 +664,7 @@ try {
       if (orphaned) showOrphanNotice();
       recordTrace({ event: autoMode() ? "auto" : "click", ok: false, ms: Date.now() - started, error: String(error?.message ?? error) });
       if (content !== null) {
+        setCardBusy(false);
         fillCardText(
           content,
           orphaned
@@ -677,6 +824,12 @@ try {
     const wait = autoMode() ? 450 : 220;
     debounce = window.setTimeout(() => {
       traceSettleOnce();
+      // 在卡片里选字（多半是想复制）不是划词：既不解读，也别把排队的那次丢掉，
+      // 更不能被记成「抓不到选区」的诊断。
+      if (selectionInsideCard(window.getSelection())) {
+        clearBubble();
+        return;
+      }
       const selection = currentSelection();
       if (selection === undefined) {
         clearBubble();
@@ -738,6 +891,11 @@ try {
   document.addEventListener("mousedown", (event) => {
     const target = event.target;
     if (target instanceof Element && target.closest("[data-dsh-insight]") !== null) return;
+    // 钉住的卡片不跟着一起收：不然「划下一段词」这个动作本身就会把它关掉。
+    if (cardPinned) {
+      clearBubble();
+      return;
+    }
     clearAll();
   }, true);
 

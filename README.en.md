@@ -21,6 +21,8 @@ Four trigger/display modes:
 
 The same text is only interpreted once. When you keep selecting, newer selections **queue up and supersede** older ones instead of being dropped mid-flight. The floating card can either follow the selection or stay pinned to the bottom-right. Answers in that card are **rendered as Markdown** as well, with inline styles so the page's CSS cannot interfere.
 
+The 📌 button in the card's title bar pins it: clicking elsewhere no longer dismisses it, and the next selection **updates that same card in place** (no new card, no jumping position). Hold the title bar (the `⠿` grip) to drag the card anywhere.
+
 **When the side panel is closed, the two sidebar-only modes above do not interpret at all** — and no badge appears either. There is nowhere to show the result, so firing a model call would be pointless. The two page-card modes are unaffected: their result is drawn on the page and never needed the side panel.
 
 ### The selected text is collapsible — and editable

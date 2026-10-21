@@ -10,11 +10,13 @@ const tick = (ms) => new Promise((r) => setTimeout(r, ms));
 // md.js 用 document.createTextNode 造文本，并用 `instanceof Node` 区分元素与文本；
 // 少了这两样，渲染会一路抛错再被 try/catch 兜成纯文本 —— 看着"能跑"，其实没渲染。
 class Node {}
+class Element extends Node {}
 class TextNode extends Node { constructor(t){ super(); this.textContent = String(t); } }
-class El extends Node {
-  constructor(t){ super(); this.tag=t; this.style={}; this.children=[]; this.handlers={}; this.parentNode=null; this.parentElement=null; }
+class El extends Element {
+  constructor(t){ super(); this.tag=t; this.nodeType=1; this.style={}; this.children=[]; this.handlers={}; this.parentNode=null; this.parentElement=null; }
   get tagName(){ return this.tag.toUpperCase(); }
-  setAttribute(){}
+  setAttribute(k, v){ (this.attrs ||= {})[k] = String(v); }
+  getBoundingClientRect(){ return this.rect ?? { left: 100, top: 200, width: 300, height: 120 }; }
   append(c){ if (c == null) return; c.parentNode = this; c.parentElement = this; this.children.push(c); }
   appendChild(c){ this.append(c); }
   replaceChildren(...cs){ this.children = []; for (const c of cs) this.append(c); }
@@ -22,9 +24,16 @@ class El extends Node {
   get lastElementChild(){ for (let i=this.children.length-1;i>=0;i-=1) if (this.children[i] instanceof El) return this.children[i]; return null; }
   querySelectorAll(sel){ if (sel !== "*") throw new Error("只支持 *"); const out=[];
     const walk=(n)=>{ for (const c of n.children) if (c instanceof El) { out.push(c); walk(c); } }; walk(this); return out; }
+  closest(sel){
+    for (let n = this; n instanceof El; n = n.parentElement) {
+      if (sel === "button" && n.tag === "button") return n;
+      if (sel === "[data-dsh-insight]" && n.attrs && "data-dsh-insight" in n.attrs) return n;
+    }
+    return null;
+  }
   addEventListener(t,h){(this.handlers[t]||=[]).push(h);}
   fire(t,ev={}){for(const h of this.handlers[t]||[])h(ev);} }
-globalThis.Element = class {};
+globalThis.Element = Element;
 
 const store = {};
 const env = { appended: [], sent: [], listeners: {}, selection: null, onChanged: [] };
@@ -47,7 +56,7 @@ globalThis.chrome = {
     get: async (keys) => { const l=Array.isArray(keys)?keys:[keys]; const o={}; for(const k of l) if(k in store)o[k]=store[k]; return o; },
     set: async (o) => Object.assign(store, o) },
     onChanged: { addListener: (fn) => env.onChanged.push(fn) } },
-  runtime: { id: "test-ext", onMessage: { addListener() {} }, sendMessage: async (m) => { if (m?.type === "panel-state-query") return { open: true }; env.sent.push(m); return { ok: true, text: "**ANSWER** 和 `code`" }; } },
+  runtime: { id: "test-ext", onMessage: { addListener() {} }, sendMessage: async (m) => { if (m?.type === "panel-state-query") return { open: true }; env.sent.push(m); env.replyCount = (env.replyCount || 0) + 1; return { ok: true, text: `**ANSWER** ${env.replyCount} 和 \`code\`` }; } },
 };
 env.fire = (t, ev) => { for (const h of env.listeners[t] || []) h(ev); };
 
@@ -144,6 +153,73 @@ try {
 } finally {
   globalThis.dshInsightMd = savedMd;
 }
+
+// 7) 图钉：钉住后不消失，划新词就地更新
+await reset(); await setMode({ insight_mode: "click", insight_position: "auto" });
+select("pin card"); env.fire("mouseup", {});
+await tick(400);
+env.appended[0].fire("click", { preventDefault(){}, stopPropagation(){} });
+await tick(80);
+
+const cardEl = env.appended[0];
+const cbar = cardEl.children[0];
+const cardBtns = cardEl.querySelectorAll("*").filter((n) => n.tag === "button");
+check("卡片上有两个按钮（图钉 + 关闭）", cardBtns.length === 2, String(cardBtns.length));
+const pinBtn = cardBtns[0];
+check("图钉默认是未钉住", pinBtn.attrs?.["aria-pressed"] === "false", JSON.stringify(pinBtn.attrs));
+check("图钉有说明文字", typeof pinBtn.title === "string" && pinBtn.title.includes("钉住"), pinBtn.title);
+
+pinBtn.fire("click", {});
+check("点图钉后变为已钉住", pinBtn.attrs?.["aria-pressed"] === "true", JSON.stringify(pinBtn.attrs));
+check("已钉住时说明会就地更新", pinBtn.title.includes("就地更新"), pinBtn.title);
+
+// 开始划新词：页面上的 mousedown 会先发生 —— 钉住的卡片必须挺住
+await setMode({ insight_mode: "auto" });
+const seqBefore = env.replyCount || 0;
+select("second text"); env.fire("mousedown", { target: {} });
+await tick(40);
+check("钉住：点页面别处不会关掉卡片", env.appended.length === 1, String(env.appended.length));
+env.fire("mouseup", {});
+await tick(700);
+check("钉住：不新建卡片，还是同一张", env.appended.length === 1 && env.appended[0] === cardEl, String(env.appended.length));
+check("钉住：正文就地更新成新一次结果", allText(cardEl).includes(`ANSWER ${seqBefore + 1}`), allText(cardEl));
+check("钉住：结束后收起「更新中…」", cbar.children[2].style.display === "none", String(cbar.children[2].style.display));
+
+// 拖动：按住标题栏
+cbar.fire("pointerdown", { button: 0, pointerId: 7, clientX: 150, clientY: 210, target: cbar, preventDefault(){}, stopPropagation(){} });
+check("拖动：按下即切到 left/top 定位", cardEl.style.left === "100px" && cardEl.style.top === "200px", `${cardEl.style.left}/${cardEl.style.top}`);
+check("拖动：清掉 right/bottom 免得跳位", cardEl.style.right === "auto" && cardEl.style.bottom === "auto");
+cbar.fire("pointermove", { pointerId: 7, clientX: 400, clientY: 300, preventDefault(){} });
+check("拖动：位置跟着指针走", cardEl.style.left === "350px" && cardEl.style.top === "290px", `${cardEl.style.left}/${cardEl.style.top}`);
+cbar.fire("pointerup", { pointerId: 7 });
+cbar.fire("pointermove", { pointerId: 7, clientX: 700, clientY: 600, preventDefault(){} });
+check("拖动：松手后不再跟随", cardEl.style.left === "350px", cardEl.style.left);
+
+// 在卡片里选字（想复制）不该被当成划词再解读一次
+const sentBeforePick = env.sent.length;
+const textBeforePick = allText(cardEl);
+env.selection = { isCollapsed: false, toString: () => "ANSWER 2", rangeCount: 1,
+  getRangeAt: () => ({ commonAncestorContainer: cardEl.children[1] }) };
+env.fire("selectionchange", {});
+await tick(700);
+check("卡片里选字不触发新解读", env.sent.length === sentBeforePick, `${env.sent.length} vs ${sentBeforePick}`);
+check("卡片里选字不会顶掉正文", allText(cardEl) === textBeforePick, allText(cardEl));
+check("卡片里选字不弹浮标", env.appended.length === 1, String(env.appended.length));
+await tick(60);
+// 卡片内选字走的是「忽略」而不是「抓不到选区」—— 否则诊断里会多一条假的 capture-miss
+const missAfter = (store.content_last || []).filter((e) => e.event === "capture-miss").length;
+check("卡片里选字不记 capture-miss 诊断", missAfter === 0, JSON.stringify((store.content_last || []).slice(0, 2)));
+
+// 按在图钉上不能触发拖动
+const before = cardEl.style.left;
+cbar.fire("pointerdown", { button: 0, pointerId: 8, clientX: 150, clientY: 210, target: pinBtn, preventDefault(){}, stopPropagation(){} });
+check("按在图钉上不启动拖动", cardEl.style.left === before, cardEl.style.left);
+
+// 取消钉住后，行为回到「点别处就收掉」
+pinBtn.fire("click", {});
+check("再点一次取消钉住", pinBtn.attrs?.["aria-pressed"] === "false");
+env.fire("mousedown", { target: {} });
+check("未钉住时点别处会收掉卡片", env.appended.length === 0, String(env.appended.length));
 
 console.log(`\n结果：${pass} 通过 / ${fail} 失败`);
 process.exit(fail === 0 ? 0 : 1);
