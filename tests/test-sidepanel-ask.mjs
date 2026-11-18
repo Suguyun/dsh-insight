@@ -130,6 +130,21 @@ check("表单隐藏", el("askForm").hidden === true);
 check("线程清空", text(el("thread")) === "");
 check("失败时记录区仍展开（要显示错误）", el("record").hidden === false);
 check("失败时占位提示仍收起", el("empty").hidden === true);
+check("失败时复制按钮置灰", el("copyAnswer").disabled === true, String(el("copyAnswer").disabled));
+check("失败时复制按钮文案复原", el("copyAnswer").textContent === "复制解读", el("copyAnswer").textContent);
+
+console.log("6) 操作条：复制按钮可用性 + 新记录滚回顶部");
+portHandlers.msg({ type: "insight", record });
+await tick(60);
+check("成功的解读可以复制", el("copyAnswer").disabled === false, String(el("copyAnswer").disabled));
+el("insight").scrollTop = 500;
+portHandlers.msg({ type: "insight", record: { ...record, at: "2026-09-23T08:10:00.000Z" } });
+await tick(60);
+check("新记录到达时滚回顶部", el("insight").scrollTop === 0, String(el("insight").scrollTop));
+el("insight").scrollTop = 260;
+portHandlers.msg({ type: "insight", record: { ...record, at: "2026-09-23T08:10:00.000Z" } });
+await tick(60);
+check("同一条重复广播不打断阅读位置", el("insight").scrollTop === 260, String(el("insight").scrollTop));
 
 console.log(`\n结果：${pass} 通过 / ${fail} 失败`);
 process.exit(fail === 0 ? 0 : 1);

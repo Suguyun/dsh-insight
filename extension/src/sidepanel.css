@@ -437,6 +437,13 @@ button {
 
 #answer[data-kind="error"] { color: var(--panel-error); }
 
+/* 正文下方的操作条：复制结果。贴右下角，读完顺手就能按。 */
+#answerBar {
+  display: flex;
+  justify-content: flex-end;
+  margin: calc(var(--sp-2) * -1) 0 var(--sp-3);
+}
+
 #answer > :first-child { margin-top: 0; }
 #answer > :last-child { margin-bottom: 0; }
 

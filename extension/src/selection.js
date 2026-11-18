@@ -118,6 +118,10 @@ try {
   // 固定位置时统一留的边距。
   const FIXED_MARGIN = 16;
 
+  // 浮标没人理会多久自动收起。参考实现是 2 秒，我们放宽一点 —— 它几乎是唯一的触发口。
+  const BADGE_IDLE_MS = 3000;
+
+  let bubbleTimer = 0;
   let label = DEFAULT_LABEL;
   let mode = "click";
   let position = "follow";
@@ -172,8 +176,24 @@ try {
   }
 
   function clearBubble() {
+    disarmBubbleTimer();
     drop(bubble);
     bubble = null;
+  }
+
+  // 浮标钉在原地不走，就会一直挡住下层内容 —— 尤其它盖在文字上时，点链接点不动。
+  // 摆一会儿就收；鼠标停在上面时不算数（正在瞄准的人不该被抢走按钮）。
+  function armBubbleTimer(button) {
+    disarmBubbleTimer();
+    bubbleTimer = window.setTimeout(() => {
+      bubbleTimer = 0;
+      if (bubble === button) clearBubble();
+    }, BADGE_IDLE_MS);
+  }
+
+  function disarmBubbleTimer() {
+    window.clearTimeout(bubbleTimer);
+    bubbleTimer = 0;
   }
 
   function clearCard() {
@@ -366,15 +386,17 @@ try {
   function showBubble(selection) {
     clearBubble();
     const isDark = dark();
+    const idleBackground = isDark ? "#21262d" : "#ffffff";
     const button = make(
       "button",
       {
         position: "fixed",
         zIndex: "2147483647",
-        padding: "4px 10px",
+        // 按下时手指/光标就落在这块区域上：给足高度，别让人瞄准一条细细的文字。
+        padding: "6px 12px",
         font: "12px/1.4 system-ui, -apple-system, 'Segoe UI', sans-serif",
         color: isDark ? "#e6edf3" : "#1f2328",
-        background: isDark ? "#21262d" : "#ffffff",
+        background: idleBackground,
         border: `1px solid ${isDark ? "#3d444d" : "#d1d9e0"}`,
         borderRadius: "6px",
         boxShadow: "0 2px 10px rgba(0,0,0,.18)",
@@ -383,6 +405,7 @@ try {
       },
       label,
     );
+    button.title = "解读选中的文字（Esc 收起）";
     if (position === "fixed") {
       // 固定在右下角：不用每次都去追选区，鼠标习惯性回到同一处就能点到。
       button.style.right = `${String(FIXED_MARGIN)}px`;
@@ -402,14 +425,33 @@ try {
       // 别让点击清掉选区。
       event.preventDefault();
       event.stopPropagation();
+      // 按下就暂停计时：万一正好卡在自动收起的当口，按钮被别人从 DOM 里摘掉，
+      // 这一下点击就永远不会变成 click 了。
+      disarmBubbleTimer();
+    });
+    button.addEventListener("pointerdown", () => {
+      disarmBubbleTimer();
+    });
+    // 悬停反馈：没有这一下，浮标看起来和页面上的静态文字没区别，不知道能不能点。
+    button.addEventListener("mouseenter", () => {
+      button.style.background = isDark ? "#30363d" : "#f0f3f6";
+      disarmBubbleTimer();
+    });
+    button.addEventListener("mouseleave", () => {
+      button.style.background = idleBackground;
+      armBubbleTimer(button);
     });
     button.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
+      // 双击选词、三击选段时，落在浮标上的那一次点击 detail 是 2 或 3 —— 它属于
+      // 「选词」这个动作本身。不拦的话，三击选一段就会顺手把解读也发出去。
+      if (typeof event.detail === "number" && event.detail > 1) return;
       void interpret(selection.text, selection.rect);
     });
     document.documentElement.appendChild(button);
     bubble = button;
+    armBubbleTimer(button);
   }
 
   // ---- 卡片 ----
@@ -458,6 +500,11 @@ try {
       shell.style.left = `${String(rect.left)}px`;
       shell.style.top = `${String(rect.top)}px`;
       bar.style.cursor = "grabbing";
+      // 肯花力气挪位置，说明这张卡片要留着 —— 顺手钉住，免得点一下页面就没了。
+      if (!cardPinned) {
+        cardPinned = true;
+        syncPin();
+      }
       try {
         bar.setPointerCapture(event.pointerId);
       } catch {}
@@ -488,6 +535,39 @@ try {
     bar.addEventListener("pointercancel", end);
   }
 
+  /**
+   * 复制一段文本。
+   * https 页面能直接用异步剪贴板；http 页面没有这个 API（非安全上下文会返回
+   * undefined），退回「塞一个临时 textarea 再 execCommand」的老办法。
+   * 两条路都失败就返回 false，由调用方把失败摆在按钮上 —— 静默失败最气人。
+   */
+  async function copyText(text) {
+    if (text === "") return false;
+    try {
+      if (globalThis.navigator?.clipboard?.writeText !== undefined) {
+        await globalThis.navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch {
+      // 权限被拒 / 页面没焦点 → 落到下面的兜底。
+    }
+    try {
+      const area = document.createElement("textarea");
+      area.value = text;
+      area.setAttribute("readonly", "");
+      area.style.position = "fixed";
+      area.style.top = "-1000px";
+      area.style.opacity = "0";
+      document.documentElement.appendChild(area);
+      area.select();
+      const ok = typeof document.execCommand === "function" && document.execCommand("copy") === true;
+      area.remove();
+      return ok;
+    } catch {
+      return false;
+    }
+  }
+
   /** 新建一张卡片。 */
   function showCard(anchorRect, body) {
     clearBubble();
@@ -501,6 +581,8 @@ try {
       width: `${String(width)}px`,
       maxHeight: "60vh",
       overflow: "auto",
+      // 滚到卡片尽头时别让滚轮继续带动整页 —— 读长解读时页面乱跑很恼人。
+      overscrollBehavior: "contain",
       padding: "10px 12px",
       font: "13px/1.6 system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif",
       color: isDark ? "#e6edf3" : "#1f2328",
@@ -555,7 +637,29 @@ try {
       font: "13px/1 system-ui, sans-serif",
       padding: "2px 4px",
       flex: "0 0 auto",
+      // 图标本身才 13px 宽，光靠它点起来太费劲；撑到 24×24 才有按钮的手感。
+      minWidth: "24px",
+      minHeight: "24px",
+      display: "inline-flex",
+      alignItems: "center",
+      justifyContent: "center",
+      borderRadius: "5px",
     };
+    // 复制：把眼前这段结果拿走。放在 hint 之后、钉住之前 —— 复制和关闭是「动作」，
+    // 钉住是「状态」，中间隔一个按钮不容易点错。
+    const copy = make("button", buttonStyle, "⧉");
+    copy.title = "复制结果";
+    copy.addEventListener("click", () => {
+      const text = content.textContent ?? "";
+      void copyText(text).then((ok) => {
+        copy.textContent = ok ? "✓" : "✕";
+        copy.title = ok ? "已复制" : "复制失败：浏览器拒绝了剪贴板";
+        window.setTimeout(() => {
+          copy.textContent = "⧉";
+          copy.title = "复制结果";
+        }, 1200);
+      });
+    });
     const pin = make("button", buttonStyle, "📌");
     pin.addEventListener("click", () => {
       cardPinned = !cardPinned;
@@ -570,6 +674,7 @@ try {
     bar.appendChild(grip);
     bar.appendChild(label);
     bar.appendChild(hint);
+    bar.appendChild(copy);
     bar.appendChild(pin);
     bar.appendChild(close);
 
@@ -592,10 +697,45 @@ try {
     }
     enableDrag(shell, bar);
     document.documentElement.appendChild(shell);
+    // 位置是按「卡片大概 120px 高」估出来的。真的挂上去量一次，长解读别探出视口。
+    if (position !== "fixed") nudgeIntoView(shell, anchorRect);
     card = shell;
     cardParts = { content, pin, hint, label, bar };
     syncPin();
     return content;
+  }
+
+  /**
+   * 放不下就往上翻。
+   * 卡片是自己算坐标 fixed 定位的，浏览器不会帮忙滚——一屏放不开时它会把结尾
+   * 探到视口外面，用户看到的是半截话还找不到滚动条。
+   */
+  function nudgeIntoView(shell, anchorRect) {
+    const rect = shell.getBoundingClientRect?.();
+    const height = Number(rect?.height ?? 0);
+    if (!Number.isFinite(height) || height <= 0) return;
+    const bottom = Number(rect?.top ?? 0) + height;
+    const limit = window.innerHeight - 12;
+    if (bottom <= limit) return;
+    // 上面够高就翻到选区正上方，否则贴住视口底（至少能看全，滚一下就行）。
+    const above = anchorRect.top - height - 10;
+    shell.style.top = `${String(Math.max(12, Math.min(above, limit - height)))}px`;
+  }
+
+  /** 钉住时就地更新：正文换了但卡片没动，闪一下边框，不然用户以为没反应。 */
+  function flashCard() {
+    if (card === null) return;
+    try {
+      card.animate(
+        [
+          { boxShadow: "0 0 0 2px rgba(88,166,255,.85)" },
+          { boxShadow: "0 6px 24px rgba(0,0,0,.22)" },
+        ],
+        { duration: 700, easing: "ease-out" },
+      );
+    } catch {
+      // 没有 Web Animations 就算了，纯装饰。
+    }
   }
 
   /**
@@ -644,6 +784,8 @@ try {
     // 「只用侧边栏」时不建卡片：结果由 background 广播 + 落 last_insight 给侧栏。
     // 浮标也要收起来 —— 原来是被 showCard 里的 clearBubble 顺带收掉的，不建卡片
     // 就没人收，会留一个点过的按钮挂在页面上。
+    // 钉住时 openCard 就地复用旧卡片：记一下，结束时才知道该不该闪一下。
+    const reusing = card !== null && cardPinned && cardParts !== null;
     let content = null;
     if (sidebarOnly()) clearBubble();
     else content = openCard(anchorRect, "解读中…");
@@ -672,8 +814,10 @@ try {
       }
       if (content !== null) {
         setCardBusy(false);
-        if (reply?.ok === true) fillCardMarkdown(content, String(reply.text ?? ""));
-        else if (reply?.skipped === true) fillCardText(content, "侧栏未打开，已跳过。");
+        if (reply?.ok === true) {
+          fillCardMarkdown(content, String(reply.text ?? ""));
+          if (reusing) flashCard();
+        } else if (reply?.skipped === true) fillCardText(content, "侧栏未打开，已跳过。");
         else fillCardText(content, `解读失败：${String(reply?.error ?? "未知错误")}`);
       }
     } catch (error) {
@@ -878,6 +1022,14 @@ try {
       return;
     }
     clearAll();
+  }, true);
+
+  // 页面一滚，浮标就悬在一段和它无关的文字上方了 —— 固定定位不会跟着选区走。
+  // 捕获期监听能收到任意滚动容器的 scroll（scroll 不冒泡），卡片自己滚要排除掉。
+  document.addEventListener("scroll", (event) => {
+    const target = event?.target;
+    if (target instanceof Element && target.closest("[data-dsh-insight]") !== null) return;
+    if (bubble !== null) clearBubble();
   }, true);
 
   document.addEventListener("keydown", (event) => {

@@ -36,6 +36,7 @@ const quoteCancelBtn = document.getElementById("quoteCancel");
 // 折叠阈值：超过这么多字符才给「展开」。太短的内容套一层展开反而啰嗦。
 const QUOTE_CLAMP_CHARS = 160;
 const answerEl = document.getElementById("answer");
+const copyAnswerBtn = document.getElementById("copyAnswer");
 const emptyEl = document.getElementById("empty");
 const optionsFrame = document.getElementById("optionsFrame");
 const pendingEl = document.getElementById("pending");
@@ -119,6 +120,8 @@ function renderStatus(s) {
 let thread = [];
 let currentRecord = null;
 let asking = false;
+// 上一次渲染的记录 key：只在新记录到达时把面板滚回顶部，重复广播同一条时别动。
+let lastRenderedKey = "";
 
 function recordKey(record) {
   return `${record?.at ?? ""}|${record?.url ?? ""}`;
@@ -198,9 +201,34 @@ quoteInputEl.addEventListener("input", () => {
   quoteCountEl.textContent = quoteInputEl.value.length > 0 ? `${quoteInputEl.value.length} 字` : "";
 });
 
+// 复制的是「屏幕上看到的文字」（渲染后的纯文本），不是 Markdown 源码 ——
+// 粘到聊天框、邮件里都还是人话。
+copyAnswerBtn.addEventListener("click", () => {
+  const text = (answerEl.textContent ?? "").trim();
+  if (text === "") return;
+  void (async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      copyAnswerBtn.textContent = "已复制";
+    } catch {
+      copyAnswerBtn.textContent = "复制失败";
+    }
+    window.setTimeout(() => {
+      copyAnswerBtn.textContent = "复制解读";
+    }, 1200);
+  })();
+});
+
 async function renderRecord(record) {
   if (record === null || record === undefined) return;
   currentRecord = record;
+  const key = recordKey(record);
+  // 换了一条新解读就回到顶部。否则上一条很长时你还停在中段，新结果在头顶上方
+  // 出现，看着就像「划词了但什么都没发生」。
+  if (key !== lastRenderedKey) {
+    lastRenderedKey = key;
+    insight.scrollTop = 0;
+  }
 
   // 收起「还没有解读记录。」并显示记录区。少了这两行，解读结果整块都不会出现
   // —— 界面看起来就是「划词了但什么都没发生」。
@@ -226,9 +254,12 @@ async function renderRecord(record) {
     answerEl.textContent = `解读失败：${record.error ?? "未知错误"}`;
   }
 
+  // 失败的解读没有可复制的内容：按钮置灰，别让人点了以为坏了。
+  copyAnswerBtn.disabled = record.ok !== true;
+  copyAnswerBtn.textContent = "复制解读";
+
   // 讨论区：只对成功的解读开放（失败的没有可讨论的回答）。
   askForm.hidden = record.ok !== true;
-  const key = recordKey(record);
   const restored = await loadThread(key);
   // await 期间可能又来了新的一条，那就以后者为准，别把旧线程贴上去。
   if (recordKey(currentRecord) !== key) return;

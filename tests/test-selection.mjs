@@ -20,6 +20,7 @@ class El extends Element {
   append(c){ if (c == null) return; c.parentNode = this; c.parentElement = this; this.children.push(c); }
   appendChild(c){ this.append(c); }
   replaceChildren(...cs){ this.children = []; for (const c of cs) this.append(c); }
+  get textContent(){ return this.children.map((c) => (c.textContent ?? "")).join(""); }
   set textContent(v){ this.children = []; if (v !== "") this.children.push(new TextNode(v)); }
   get lastElementChild(){ for (let i=this.children.length-1;i>=0;i-=1) if (this.children[i] instanceof El) return this.children[i]; return null; }
   querySelectorAll(sel){ if (sel !== "*") throw new Error("只支持 *"); const out=[];
@@ -66,7 +67,8 @@ await tick(40);
 
 let pass = 0, fail = 0;
 const check = (n, c, extra = "") => { if (c) { pass++; console.log(`  ok   ${n}`); } else { fail++; console.log(`  FAIL ${n} ${extra}`); } };
-const allText = (el) => (el.textContent || "") + (el.children || []).map(allText).join("");
+// 桩里的 textContent 是「拼接全部子节点」的真实语义，所以直接读它就够了（别重复累加子节点）。
+const allText = (el) => (el.textContent !== undefined ? el.textContent : (el.children || []).map(allText).join(""));
 const deepTags = (el, acc = []) => { for (const c of el.children || []) if (c instanceof El) { acc.push(c.tag); deepTags(c, acc); } return acc; };
 const select = (text) => { env.selection = { isCollapsed:false, toString:()=>text,
   getRangeAt:()=>({ getBoundingClientRect:()=>({left:100,right:300,top:200,bottom:220,width:200,height:20}) }) }; };
@@ -171,10 +173,29 @@ await tick(80);
 const cardEl = env.appended[0];
 const cbar = cardEl.children[0];
 const cardBtns = cardEl.querySelectorAll("*").filter((n) => n.tag === "button");
-check("卡片上有两个按钮（图钉 + 关闭）", cardBtns.length === 2, String(cardBtns.length));
-const pinBtn = cardBtns[0];
+check("卡片上有三个按钮（复制 + 图钉 + 关闭）", cardBtns.length === 3, String(cardBtns.length));
+const copyBtn = cardBtns.find((n) => n.title === "复制结果");
+check("卡片上有复制按钮", copyBtn !== undefined, JSON.stringify(cardBtns.map((n) => n.title)));
+const pinBtn = cardBtns.find((n) => n.attrs?.["aria-pressed"] !== undefined);
 check("图钉默认是未钉住", pinBtn.attrs?.["aria-pressed"] === "false", JSON.stringify(pinBtn.attrs));
 check("图钉有说明文字", typeof pinBtn.title === "string" && pinBtn.title.includes("钉住"), pinBtn.title);
+
+// 复制：把正文交给剪贴板，按钮就地给个回执，过一会儿自己复原
+const navDescriptor = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+let copiedText = null;
+Object.defineProperty(globalThis, "navigator", {
+  value: { clipboard: { writeText: async (t) => { copiedText = t; } } },
+  configurable: true,
+});
+copyBtn.fire("click", {});
+await tick(40);
+check("复制：正文被送进剪贴板", typeof copiedText === "string" && copiedText.includes("ANSWER"), String(copiedText));
+check("复制：按钮就地变成已复制", allText(copyBtn) === "✓", allText(copyBtn));
+check("复制：说明跟着改成已复制", copyBtn.title === "已复制", copyBtn.title);
+await tick(1300);
+check("复制：回执会自己复原", allText(copyBtn) === "⧉", allText(copyBtn));
+if (navDescriptor === undefined) delete globalThis.navigator;
+else Object.defineProperty(globalThis, "navigator", navDescriptor);
 
 pinBtn.fire("click", {});
 check("点图钉后变为已钉住", pinBtn.attrs?.["aria-pressed"] === "true", JSON.stringify(pinBtn.attrs));
@@ -227,11 +248,61 @@ const before = cardEl.style.left;
 cbar.fire("pointerdown", { button: 0, pointerId: 8, clientX: 150, clientY: 210, target: pinBtn, preventDefault(){}, stopPropagation(){} });
 check("按在图钉上不启动拖动", cardEl.style.left === before, cardEl.style.left);
 
-// 取消钉住后，行为回到「点别处就收掉」
+// 肯花力气挪位置 = 想留着它：一拖就顺带钉住
 pinBtn.fire("click", {});
 check("再点一次取消钉住", pinBtn.attrs?.["aria-pressed"] === "false");
+cbar.fire("pointerdown", { button: 0, pointerId: 9, clientX: 150, clientY: 210, target: cbar, preventDefault(){}, stopPropagation(){} });
+cbar.fire("pointerup", { pointerId: 9 });
+check("拖动一下就算钉住", pinBtn.attrs?.["aria-pressed"] === "true", JSON.stringify(pinBtn.attrs));
+pinBtn.fire("click", {});
+check("拖动后仍能手动取消钉住", pinBtn.attrs?.["aria-pressed"] === "false");
 env.fire("mousedown", { target: {} });
 check("未钉住时点别处会收掉卡片", env.appended.length === 0, String(env.appended.length));
+
+// 9) 手感细节：多击不误发、滚动收起浮标、长卡片不探出视口
+await reset(); await setMode({ insight_mode: "click", insight_position: "auto" });
+select("double click word"); env.fire("mouseup", {});
+await tick(400);
+check("多击：浮标已出现", env.appended.length === 1, String(env.appended.length));
+env.appended[0].fire("click", { detail: 2, preventDefault(){}, stopPropagation(){} });
+await tick(60);
+check("多击：detail>1 不发起解读", env.sent.length === 0, String(env.sent.length));
+check("多击：浮标留着等用户再点一次", env.appended.length === 1, String(env.appended.length));
+env.appended[0].fire("click", { detail: 1, preventDefault(){}, stopPropagation(){} });
+await tick(80);
+check("多击：正常单击照常解读", env.sent.length === 1, String(env.sent.length));
+
+// 页面一滚，固定定位的浮标就悬在无关文字上方了 —— 收起来，卡片不动
+await reset();
+select("scroll me"); env.fire("mouseup", {});
+await tick(400);
+check("滚动前：浮标在", env.appended.length === 1, String(env.appended.length));
+env.fire("scroll", { target: {} });
+await tick(20);
+check("页面滚动后：浮标收起", env.appended.length === 0, String(env.appended.length));
+
+// 浮标没人理就自己走开，别一直压着下层内容；鼠标停在上面时不算
+await reset();
+select("idle me"); env.fire("mouseup", {});
+await tick(400);
+check("闲置：浮标先出现", env.appended.length === 1, String(env.appended.length));
+env.appended[0].fire("mouseenter", {});
+await tick(3100);
+check("闲置：鼠标停在上面就不收", env.appended.length === 1, String(env.appended.length));
+env.appended[0].fire("mouseleave", {});
+await tick(3100);
+check("闲置：没人理会自动收起", env.appended.length === 0, String(env.appended.length));
+
+// 长解读：按 120px 估的位置会探出视口底，得翻到选区上方
+await reset();
+const savedInnerHeight = win.innerHeight;
+win.innerHeight = 300;
+select("tall card"); env.fire("mouseup", {});
+await tick(400);
+env.appended[0].fire("click", { preventDefault(){}, stopPropagation(){} });
+await tick(80);
+check("长卡片：翻到选区上方，不探出视口底", env.appended[0].style.top === "70px", String(env.appended[0].style.top));
+win.innerHeight = savedInnerHeight;
 
 console.log(`\n结果：${pass} 通过 / ${fail} 失败`);
 process.exit(fail === 0 ? 0 : 1);

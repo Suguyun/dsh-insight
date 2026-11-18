@@ -23,7 +23,11 @@ The old `auto` / `auto-sidebar` modes are gone; stale values in storage are norm
 
 The badge always follows the latest selection and never stacks up. The floating card can either follow the selection or stay pinned to the bottom-right. Answers in that card are **rendered as Markdown** as well, with inline styles so the page's CSS cannot interfere.
 
-The 📌 button in the card's title bar pins it: clicking elsewhere no longer dismisses it, and the next selection plus badge click **updates that same card in place** (no new card, no jumping position). Hold the title bar (the `⠿` grip) to drag the card anywhere.
+The 📌 button in the card's title bar pins it: clicking elsewhere no longer dismisses it, and the next selection plus badge click **updates that same card in place** (no new card, no jumping position), with a brief border flash so you notice the swap. Hold the title bar (the `⠿` grip) to drag the card anywhere — **dragging pins it automatically**: moving the card by hand means you want to keep it.
+
+The `⧉` button on the title bar copies the current answer as plain text (the icon turns into `✓`). Scrolling to the end of the card does not drag the whole page along.
+
+The badge itself is tuned for hands: it highlights on hover, double-click word selection or triple-click paragraph selection will not fire a request, it disappears on page scroll, and it fades out after 3 seconds of neglect (the countdown pauses while the pointer is on it).
 
 **When the side panel is closed, the sidebar-only `click-sidebar` mode shows no badge and interprets nothing** — there is nowhere to show the result, so firing a model call would be pointless. The page-card mode is unaffected: its result is drawn on the page and never needed the side panel.
 
@@ -198,7 +202,7 @@ cd dsh-insight
 node tests/run.mjs      # or: npm test
 ```
 
-`tests/` holds 21 self-contained suites (17 of them report assertion counts, **310** in total; 2 need an installed dsh and SKIP otherwise) covering manual-only triggering, the sidebar-open gate, the orphaned-content-script guard, panel views and follow-ups, Markdown rendering, the options page, presets, capture redaction and the installer's target layout.
+`tests/` holds 21 self-contained suites (17 of them report assertion counts, **332** in total; 2 need an installed dsh and SKIP otherwise) covering manual-only triggering, the sidebar-open gate, the orphaned-content-script guard, panel views and follow-ups, Markdown rendering, the options page, presets, capture redaction and the installer's target layout.
 
 Each suite ships its own DOM / chrome API stubs and imports repository sources directly — no build step. `test-host-mt` and `test-presets` exercise `host/insight.js` and need dsh's `@deepseek-ai/dsh-llm` to resolve; in a bare clone they print `SKIP` and count as skipped rather than failing.
 
