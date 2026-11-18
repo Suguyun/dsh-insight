@@ -122,17 +122,14 @@ const traced2 = Array.isArray(store.content_last) ? store.content_last.filter((e
 check("反复划词仍不发请求", interprets().length === 0, String(interprets().length));
 check("跳过只记一次，不刷存储", traced2.length === 1, String(traced2.length));
 
-// 3) 侧栏打开后 → 浮标出现，点了才发请求（目标 sidebar），页面仍然没有卡片
+// 3) 侧栏打开后 → 划词直接解读（人就在面板前等着接结果），页面仍然没有卡片
+//    这一步刻意不点浮标：面板开着就等于用户说了「我现在就在看这个」。
 await pushPanel(true);
 select("now open"); env.fire("mouseup", {});
 await tick(400);
-check("侧栏打开后：浮标出现", env.appended.length === 1, String(env.appended.length));
-check("侧栏打开后：划词本身不发请求", interprets().length === 0, String(interprets().length));
-env.appended[0].fire("click", { preventDefault() {}, stopPropagation() {} });
-await tick(80);
-check("侧栏打开后：点了才发请求", interprets().length === 1, String(interprets().length));
+check("侧栏打开后：划词直接发请求", interprets().length === 1, String(interprets().length));
 check("侧栏打开后：请求带 target=sidebar", interprets()[0]?.target === "sidebar", String(interprets()[0]?.target));
-check("侧栏打开后：页面不弹结果卡片", env.appended.length === 0, String(env.appended.length));
+check("侧栏打开后：不弹浮标也不弹卡片", env.appended.length === 0, String(env.appended.length));
 
 // 4) 侧栏再次关掉 → 立刻回到「不弹浮标、不解读」
 await reset(); await pushPanel(false);

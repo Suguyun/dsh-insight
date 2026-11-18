@@ -37,7 +37,7 @@ class El extends Element {
 globalThis.Element = Element;
 
 const store = {};
-const env = { appended: [], sent: [], listeners: {}, selection: null, onChanged: [] };
+const env = { appended: [], sent: [], listeners: {}, selection: null, onChanged: [], panelListeners: [], panelOpen: false, gate: null };
 globalThis.Node = Node;
 globalThis.document = {
   title: "T",
@@ -57,7 +57,7 @@ globalThis.chrome = {
     get: async (keys) => { const l=Array.isArray(keys)?keys:[keys]; const o={}; for(const k of l) if(k in store)o[k]=store[k]; return o; },
     set: async (o) => Object.assign(store, o) },
     onChanged: { addListener: (fn) => env.onChanged.push(fn) } },
-  runtime: { id: "test-ext", onMessage: { addListener() {} }, sendMessage: async (m) => { if (m?.type === "panel-state-query") return { open: true }; env.sent.push(m); env.replyCount = (env.replyCount || 0) + 1; return { ok: true, text: `**ANSWER** ${env.replyCount} 和 \`code\`` }; } },
+  runtime: { id: "test-ext", onMessage: { addListener: (fn) => env.panelListeners.push(fn) }, sendMessage: async (m) => { if (m?.type === "panel-state-query") return { open: env.panelOpen }; env.sent.push(m); env.replyCount = (env.replyCount || 0) + 1; if (env.gate !== null) await env.gate; return { ok: true, text: `**ANSWER** ${env.replyCount} 和 \`code\`` }; } },
 };
 env.fire = (t, ev) => { for (const h of env.listeners[t] || []) h(ev); };
 
@@ -80,8 +80,15 @@ async function setMode(patch) {
   for (const fn of env.onChanged) fn(changes, "local");
   await tick(40);
 }
+/** 模拟 background 推送侧栏开合变化（和真实链路一样走 runtime 消息）。 */
+async function setPanel(open) {
+  env.panelOpen = open;
+  for (const fn of env.panelListeners) fn({ type: "panel-state", open });
+  await tick(20);
+}
 /** 每个场景之间清场：折叠选区（重置自动模式去重）+ 关掉已有浮窗。 */
 async function reset() {
+  if (env.panelOpen) await setPanel(false);
   env.selection = { isCollapsed:true, toString:()=>"", getRangeAt:()=>{ throw new Error("collapsed"); } };
   env.fire("mousedown", { target: {} });
   await tick(30);
@@ -118,27 +125,29 @@ await tick(80);
 check("旧值 auto：点浮标才发请求", env.sent.length === 1, String(env.sent.length));
 check("旧值 auto：结果落在页面卡片", allText(env.appended[0]).includes("ANSWER"), allText(env.appended[0]));
 
-// 3) 旧值 auto-sidebar：归一成「只进侧栏 + 点浮标」
+// 3) 旧值 auto-sidebar：归一成「只进侧栏」—— 侧栏关着安静跳过，开着就直接解读
 await reset(); await setMode({ insight_mode: "auto-sidebar" });
-select("sidebar only"); env.fire("mouseup", {});
+select("sidebar only closed"); env.fire("mouseup", {});
 await tick(600);
-check("旧值 auto-sidebar：划词不发请求", env.sent.length === 0, String(env.sent.length));
-check("旧值 auto-sidebar：浮标仍在（它是触发器）", env.appended.length === 1, String(env.appended.length));
-env.appended[0].fire("click", { preventDefault(){}, stopPropagation(){} });
-await tick(80);
-check("旧值 auto-sidebar：点击后发请求", env.sent.length === 1, String(env.sent.length));
-check("旧值 auto-sidebar：请求带 target=sidebar", env.sent[0]?.target === "sidebar", String(env.sent[0]?.target));
-check("旧值 auto-sidebar：页面不出现结果卡片", env.appended.length === 0, String(env.appended.length));
+check("旧值 auto-sidebar + 侧栏关：不发请求", env.sent.length === 0, String(env.sent.length));
+check("旧值 auto-sidebar + 侧栏关：不弹浮标", env.appended.length === 0, String(env.appended.length));
+await setPanel(true);
+select("sidebar only open"); env.fire("mouseup", {});
+await tick(500);
+check("侧栏打开：划词直接解读", env.sent.length === 1, String(env.sent.length));
+check("侧栏打开：请求带 target=sidebar", env.sent[0]?.target === "sidebar", String(env.sent[0]?.target));
+check("侧栏打开：页面不出现结果卡片", env.appended.length === 0, String(env.appended.length));
 
-// 4) click-sidebar：浮标在（它是触发器），结果卡片不在
+// 4) click-sidebar：同样跟着侧栏开合走
 await reset(); await setMode({ insight_mode: "click-sidebar" });
 select("no card here"); env.fire("mouseup", {});
 await tick(400);
-check("click-sidebar：浮标仍在", env.appended.length === 1, String(env.appended.length));
-env.appended[0].fire("click", { preventDefault(){}, stopPropagation(){} });
-await tick(60);
-check("click-sidebar：发出请求", env.sent.length === 1);
-check("click-sidebar：不弹结果卡片", env.appended.length === 0, String(env.appended.length));
+check("click-sidebar + 侧栏关：页面无元素也不发请求", env.appended.length === 0 && env.sent.length === 0, `${String(env.appended.length)}/${String(env.sent.length)}`);
+await setPanel(true);
+select("auto into panel"); env.fire("mouseup", {});
+await tick(500);
+check("click-sidebar + 侧栏开：自动发请求", env.sent.length === 1, String(env.sent.length));
+check("click-sidebar + 侧栏开：目标 sidebar", env.sent[0]?.target === "sidebar", String(env.sent[0]?.target));
 
 // 5) fixed：浮标钉在右下角
 await reset(); await setMode({ insight_mode: "click", insight_position: "fixed" });
@@ -199,22 +208,20 @@ else Object.defineProperty(globalThis, "navigator", navDescriptor);
 
 pinBtn.fire("click", {});
 check("点图钉后变为已钉住", pinBtn.attrs?.["aria-pressed"] === "true", JSON.stringify(pinBtn.attrs));
-check("已钉住时说明会就地更新", pinBtn.title.includes("就地更新"), pinBtn.title);
+check("已钉住时说明会讲自动解读", pinBtn.title.includes("自动解读"), pinBtn.title);
 
 // 开始划新词：页面上的 mousedown 会先发生 —— 钉住的卡片必须挺住。
-// 划词只弹浮标（不自动解读），点浮标才把结果就地更新进这张钉住的卡片。
+// 钉住 = 用户说了「我还在看这段」，所以这次不用再点浮标：直接就地更新。
 const seqBefore = env.replyCount || 0;
 const sentBefore = env.sent.length;
 select("second text"); env.fire("mousedown", { target: {} });
 await tick(40);
 check("钉住：点页面别处不会关掉卡片", env.appended.length === 1, String(env.appended.length));
 env.fire("mouseup", {});
-await tick(400);
-check("钉住：划新词只弹浮标，不自动发请求", env.sent.length === sentBefore, String(env.sent.length));
-check("钉住：浮标与卡片共存", env.appended.length === 2 && env.appended[0] === cardEl, String(env.appended.length));
-env.appended[1].fire("click", { preventDefault(){}, stopPropagation(){} });
-await tick(100);
-check("钉住：不新建卡片，还是同一张", env.appended.length === 1 && env.appended[0] === cardEl, String(env.appended.length));
+await tick(500);
+check("钉住：划新词自动解读", env.sent.length === sentBefore + 1, String(env.sent.length));
+check("钉住：不弹浮标（不用再点一下）", env.appended.length === 1, String(env.appended.length));
+check("钉住：不新建卡片，还是同一张", env.appended[0] === cardEl, String(env.appended.length));
 check("钉住：正文就地更新成新一次结果", allText(cardEl).includes(`ANSWER ${seqBefore + 1}`), allText(cardEl));
 check("钉住：结束后收起「更新中…」", cbar.children[2].style.display === "none", String(cbar.children[2].style.display));
 
@@ -303,6 +310,86 @@ env.appended[0].fire("click", { preventDefault(){}, stopPropagation(){} });
 await tick(80);
 check("长卡片：翻到选区上方，不探出视口底", env.appended[0].style.top === "70px", String(env.appended[0].style.top));
 win.innerHeight = savedInnerHeight;
+
+// 8) 拉伸：右下角把手拖宽拖高，尺寸记住，下次新卡片直接沿用
+await reset(); await setMode({ insight_mode: "click", insight_position: "auto" });
+select("resize me"); env.fire("mouseup", {});
+await tick(400);
+env.appended[0].fire("click", { preventDefault(){}, stopPropagation(){} });
+await tick(80);
+const rcard = env.appended[0];
+const rhandle = rcard.children[2];
+check("卡片右下角有拉伸把手", rhandle instanceof El && rhandle.style.cursor === "nwse-resize", String(rhandle?.style?.cursor));
+check("正文自己滚（不是整卡滚）", rcard.children[1].style.overflow === "auto", String(rcard.children[1].style.overflow));
+check("外壳不开滚动（给把手留位置）", rcard.style.overflow === "hidden", String(rcard.style.overflow));
+rhandle.fire("pointerdown", { button: 0, pointerId: 11, clientX: 400, clientY: 320, preventDefault(){}, stopPropagation(){} });
+check("拉伸：按下即换成 left/top 定位", rcard.style.left === "100px" && rcard.style.top === "200px", `${rcard.style.left}/${rcard.style.top}`);
+check("拉伸：放开 60vh 上限，否则拉到一半就不动了", rcard.style.maxHeight === "none", rcard.style.maxHeight);
+rhandle.fire("pointermove", { pointerId: 11, clientX: 600, clientY: 400, preventDefault(){}, stopPropagation(){} });
+check("拉伸：宽度跟着指针走", rcard.style.width === "500px", rcard.style.width);
+check("拉伸：高度跟着指针走", rcard.style.height === "200px", rcard.style.height);
+// 桩不会因为改样式就变 rect：松手前手动同步，模拟浏览器量到的真实尺寸
+rcard.rect = { left: 100, top: 200, width: 500, height: 200 };
+rhandle.fire("pointerup", { pointerId: 11 });
+await tick(20);
+check("拉伸：尺寸记进 storage", store.insight_card_size?.width === 500 && store.insight_card_size?.height === 200, JSON.stringify(store.insight_card_size));
+rhandle.fire("pointermove", { pointerId: 11, clientX: 900, clientY: 700, preventDefault(){}, stopPropagation(){} });
+check("拉伸：松手后不再跟随", rcard.style.width === "500px", rcard.style.width);
+delete rcard.rect;
+
+// 9) 记住的尺寸：新卡片直接沿用，不用每划一次词重拉一遍
+await reset();
+check("关掉卡片后尺寸还记着", store.insight_card_size?.width === 500, JSON.stringify(store.insight_card_size));
+select("reuse size"); env.fire("mouseup", {});
+await tick(400);
+env.appended[0].fire("click", { preventDefault(){}, stopPropagation(){} });
+await tick(80);
+const reused = env.appended[0];
+check("新卡片沿用上次的宽度", reused.style.width === "500px", reused.style.width);
+check("新卡片沿用上次的高度", reused.style.height === "200px", reused.style.height);
+check("有记忆高度时不再套 60vh 上限", reused.style.maxHeight === "none", reused.style.maxHeight);
+
+// 10) 钉住时划得比模型快：最新一次选区要补发，不能默默丢掉
+const pinned2 = env.appended[0].querySelectorAll("*").find((n) => n.attrs?.["aria-pressed"] !== undefined);
+pinned2.fire("click", {});
+check("准备：已钉住", pinned2.attrs?.["aria-pressed"] === "true");
+let release = () => {};
+env.gate = new Promise((r) => { release = r; });
+const sentBeforeQueue = env.sent.length;
+select("queued first"); env.fire("mouseup", {});
+await tick(400);
+select("latest wins"); env.fire("mouseup", {});
+await tick(400);
+check("同时在跑时不重复发请求", env.sent.length === sentBeforeQueue + 1, JSON.stringify(env.sent.map((m) => m.text)));
+env.gate = null;
+release();
+await tick(400);
+check("上一轮结束后补发最新选区", env.sent.length === sentBeforeQueue + 2, JSON.stringify(env.sent.map((m) => m.text)));
+check("补发的是最后划的那段", env.sent.at(-1)?.text === "latest wins", String(env.sent.at(-1)?.text));
+// 钉住的卡片不会被 mousedown 收掉（这是它的意义），所以下一个场景要手动取消钉住
+pinned2.fire("click", {});
+check("准备：已取消钉住", pinned2.attrs?.["aria-pressed"] === "false");
+
+// 11) 侧栏开着：页面浮窗模式也直接出结果，不用先点浮标
+await reset(); await setMode({ insight_mode: "click" });
+await setPanel(true);
+select("panel open card"); env.fire("mouseup", {});
+await tick(500);
+check("侧栏开着：卡片直接出现（不必点浮标）", env.appended.length === 1, String(env.appended.length));
+check("侧栏开着：结果已经填进卡片", allText(env.appended[0]).includes("ANSWER"), allText(env.appended[0]));
+check("侧栏开着：请求目标仍是 page", env.sent[0]?.target === "page", String(env.sent[0]?.target));
+
+// 12) 文本框里划词不算「想让人解读这段话」—— 那多半只是在改字
+await reset(); await setMode({ insight_mode: "click" });
+await setPanel(true);
+const sentBeforeEdit = env.sent.length;
+env.selection = { isCollapsed: false, toString: () => "typed text", anchorNode: { nodeType: 1, closest: (sel) => (String(sel).includes("textarea") ? {} : null) },
+  getRangeAt: () => ({ getBoundingClientRect: () => ({ left: 10, top: 10, width: 100, height: 20 }) }) };
+env.fire("selectionchange", {});
+await tick(700);
+check("文本框里划词：不自动解读", env.sent.length === sentBeforeEdit, String(env.sent.length));
+check("文本框里划词：也不弹浮标", env.appended.length === 0, String(env.appended.length));
+await setPanel(false);
 
 console.log(`\n结果：${pass} 通过 / ${fail} 失败`);
 process.exit(fail === 0 ? 0 : 1);

@@ -1,7 +1,8 @@
-// 「划词不自动解读」的回归测试。
+// 「侧栏关着、卡片也没钉住时，划词绝不自动解读」的回归测试。
 //
-// 代价模型：一次解读 = 一次模型调用。自动解读意味着每选一段文字就烧一次 token，
-// 而选词是读网页时最频繁的动作。所以只有**点浮标**才会发请求；旧版的
+// 代价模型：一次解读 = 一次模型调用，而选词是读网页时最频繁的动作。所以这个状态下
+// 只有**点浮标**才会发请求（另外两种会自动解读的状态见 test-selection：钉住卡片、
+// 侧栏展开 —— 那两种都是用户自己表示过「我现在就在看这个」）；旧版的
 // insight_mode = "auto" / "auto-sidebar" 会残留在存储里，读到必须归一成对应的
 // 手动模式 —— 否则老用户升级后仍在自动烧 token。
 //
@@ -61,7 +62,7 @@ globalThis.chrome = {
     id: "abc",
     onMessage: { addListener() {} },
     sendMessage: async (m) => {
-      if (m?.type === "panel-state-query") return { open: true };
+      if (m?.type === "panel-state-query") return { open: false };
       env.sent.push(m);
       return { ok: true, text: `解读:${String(m.text)}` };
     },
@@ -134,19 +135,15 @@ check("请求带的是最新选区", env.sent[0]?.text === "text-A3", env.sent[0
 check("请求目标是 page", env.sent[0]?.target === "page", env.sent[0]?.target);
 check("卡片显示了解读结果", allText(env.appended[0]).includes("解读:text-A3"), allText(env.appended[0]));
 
-console.log("4) 热更新回旧值 auto-sidebar：只进侧栏 + 手动");
+console.log("4) 热更新回旧值 auto-sidebar：归一成「只进侧栏」—— 侧栏关着就安静跳过");
 await reset();
 await setMode("auto-sidebar");
 select("sidebar text");
 fire("mouseup");
 await tick(600);
+// 侧栏关着时「只进侧栏」无处可显示：既不自动发请求，也不弹一个点了没反应的浮标。
 check("划词没有自动发请求", env.sent.length === 0, JSON.stringify(env.sent));
-check("弹了浮标（它仍然是触发器）", env.appended.length === 1, String(env.appended.length));
-clickBadge(env.appended[0]);
-await tick(120);
-check("点浮标后发了一次", env.sent.length === 1, JSON.stringify(env.sent));
-check("目标是 sidebar", env.sent[0]?.target === "sidebar", env.sent[0]?.target);
-check("只进侧栏：页面不弹结果卡片", env.appended.length === 0, String(env.appended.length));
+check("侧栏关着：连浮标都不弹", env.appended.length === 0, String(env.appended.length));
 
 console.log("5) 再切回旧值 auto：仍然手动（页面浮窗）");
 await reset();
@@ -161,7 +158,7 @@ check("点击后才发，且目标为 page", env.sent.length === 1 && env.sent[0
 
 console.log("6) 诊断：不再有 auto 事件，点击记成 click");
 check("没有 auto 轨迹", traces("auto").length === 0, JSON.stringify(traces("auto")));
-check("有 click 轨迹", traces("click").length === 3, JSON.stringify(traces("click").map((e) => e.event)));
+check("有 click 轨迹", traces("click").length === 2, JSON.stringify(traces("click").map((e) => e.event)));
 check("click 轨迹带耗时", typeof traces("click")[0]?.ms === "number", JSON.stringify(traces("click")[0]?.ms));
 
 console.log(`\n结果：${pass} 通过 / ${fail} 失败`);

@@ -110,7 +110,7 @@ try {
     ["auto-sidebar", "click-sidebar"],
   ]);
   const SIDEBAR_ONLY_MODES = new Set(["click-sidebar"]);
-  const SETTING_KEYS = ["insight_label", "insight_mode", "insight_position"];
+  const SETTING_KEYS = ["insight_label", "insight_mode", "insight_position", "insight_card_size"];
 
   // 划词后多久确认「选区稳定了」。只弹浮标，不发请求，所以可以短一点。
   const SETTLE_MS = 220;
@@ -125,6 +125,17 @@ try {
   let label = DEFAULT_LABEL;
   let mode = "click";
   let position = "follow";
+
+  // 用户自己拉出来的卡片尺寸（null = 没拉过，用默认宽度）。存进 storage，
+  // 下次新卡片直接沿用 —— 没人想每划一次词就重新拉一遍。
+  let cardSize = null;
+
+  // 钉住 / 面板打开时划词会自动解读。上一次还没跑完就再划，最新选区先存在这里，
+  // 等它回来补发；直接丢掉会让人以为「划了没反应」。
+  let pendingAuto = null;
+
+  const MIN_CARD_WIDTH = 260;
+  const MIN_CARD_HEIGHT = 140;
 
   const sidebarOnly = () => SIDEBAR_ONLY_MODES.has(mode);
 
@@ -141,6 +152,16 @@ try {
     }
     if (typeof stored.insight_mode === "string") mode = normalizeMode(stored.insight_mode);
     if (typeof stored.insight_position === "string") position = stored.insight_position;
+    const size = stored.insight_card_size;
+    if (size !== null && typeof size === "object") {
+      const width = Number(size.width);
+      const height = Number(size.height);
+      // 脏数据（NaN、负值、半截对象）当没存过 —— 别让一张 0×0 的卡片凭空消失。
+      cardSize =
+        Number.isFinite(width) && Number.isFinite(height) && width >= MIN_CARD_WIDTH && height >= MIN_CARD_HEIGHT
+          ? { width, height }
+          : null;
+    }
   }
 
   async function reloadSettings() {
@@ -201,6 +222,7 @@ try {
     card = null;
     cardParts = null;
     cardPinned = false;
+    pendingAuto = null;
   }
 
   function clearAll() {
@@ -466,8 +488,8 @@ try {
     pin.style.borderRadius = "5px";
     pin.setAttribute("aria-pressed", cardPinned ? "true" : "false");
     pin.title = cardPinned
-      ? "已钉住：再划新词会就地更新这张卡片（点击取消钉住）"
-      : "钉住：卡片不会消失，划新词时就地更新解读";
+      ? "已钉住：划新词会自动解读并更新这张卡片（点击取消钉住）"
+      : "钉住：卡片不会消失，之后划词自动就地更新解读";
   }
 
   /** 请求在飞的时候，标题栏右侧显示「更新中…」，正文保留上一次的结果不闪。 */
@@ -536,6 +558,79 @@ try {
   }
 
   /**
+   * 右下角把手：拖出想要的宽高。
+   *
+   * 一按下就把卡片从「右下角锚定/估出来的位置」换成明确的 left+top —— 右下角锚定的
+   * 卡片往右下拉会变成往左上长，手感和鼠标完全相反。松手后把尺寸记进 storage，
+   * 下次新卡片沿用（见 showCard 里的 cardSize）。
+   */
+  function enableResize(shell, handle) {
+    let drag = null;
+    handle.addEventListener("pointerdown", (event) => {
+      if (typeof event.button === "number" && event.button !== 0) return;
+      const rect = shell.getBoundingClientRect?.() ?? { left: 0, top: 0, width: 0, height: 0 };
+      const left = Number(rect.left) || 0;
+      const top = Number(rect.top) || 0;
+      shell.style.left = `${String(left)}px`;
+      shell.style.top = `${String(top)}px`;
+      shell.style.right = "auto";
+      shell.style.bottom = "auto";
+      // 之前的高度上限会压住手动拉的高度，先放开（否则拖到一半就不动了）。
+      shell.style.maxHeight = "none";
+      drag = {
+        id: event.pointerId,
+        x: Number(event.clientX),
+        y: Number(event.clientY),
+        width: Number(rect.width) || MIN_CARD_WIDTH,
+        height: Number(rect.height) || MIN_CARD_HEIGHT,
+        left,
+        top,
+      };
+      try {
+        handle.setPointerCapture(event.pointerId);
+      } catch {}
+      // 拖动选中正文会连带选中页面文字，那把细线跟着跑很干扰。
+      event.preventDefault();
+      event.stopPropagation();
+    });
+    handle.addEventListener("pointermove", (event) => {
+      if (drag === null || event.pointerId !== drag.id) return;
+      const dx = Number(event.clientX) - drag.x;
+      const dy = Number(event.clientY) - drag.y;
+      if (!Number.isFinite(dx) || !Number.isFinite(dy)) return;
+      // 夹在「最小值」和「还在视口里」之间：拖出屏幕的卡片就再也拉不回来了。
+      const maxWidth = Math.max(MIN_CARD_WIDTH, window.innerWidth - drag.left - 12);
+      const maxHeight = Math.max(MIN_CARD_HEIGHT, window.innerHeight - drag.top - 12);
+      shell.style.width = `${String(Math.round(Math.max(MIN_CARD_WIDTH, Math.min(maxWidth, drag.width + dx))))}px`;
+      shell.style.height = `${String(Math.round(Math.max(MIN_CARD_HEIGHT, Math.min(maxHeight, drag.height + dy))))}px`;
+      event.preventDefault();
+      event.stopPropagation();
+    });
+    const end = (event) => {
+      if (drag === null || event.pointerId !== drag.id) return;
+      try {
+        handle.releasePointerCapture(event.pointerId);
+      } catch {}
+      drag = null;
+      const rect = shell.getBoundingClientRect?.() ?? { width: 0, height: 0 };
+      saveCardSize(Number(rect.width), Number(rect.height));
+    };
+    handle.addEventListener("pointerup", end);
+    handle.addEventListener("pointercancel", end);
+  }
+
+  /** 记住这次拉出来的尺寸。写 storage 失败（扩展已重载）就算了，下次再说。 */
+  function saveCardSize(width, height) {
+    if (!Number.isFinite(width) || !Number.isFinite(height)) return;
+    if (width < MIN_CARD_WIDTH || height < MIN_CARD_HEIGHT) return;
+    cardSize = { width: Math.round(width), height: Math.round(height) };
+    try {
+      const done = chrome.storage.local.set({ insight_card_size: cardSize });
+      if (done !== null && typeof done?.catch === "function") done.catch(() => {});
+    } catch {}
+  }
+
+  /**
    * 复制一段文本。
    * https 页面能直接用异步剪贴板；http 页面没有这个 API（非安全上下文会返回
    * undefined），退回「塞一个临时 textarea 再 execCommand」的老办法。
@@ -573,16 +668,20 @@ try {
     clearBubble();
     clearCard();
     const isDark = dark();
-    const width = Math.min(420, Math.max(260, window.innerWidth - 24));
+    // 拉过就沿用上次的宽度：同一个人的阅读宽度基本固定，每次重拉很烦。
+    const width = Math.max(MIN_CARD_WIDTH, Math.min(cardSize?.width ?? 420, window.innerWidth - 24));
 
     const shell = make("div", {
       position: "fixed",
       zIndex: "2147483647",
       width: `${String(width)}px`,
       maxHeight: "60vh",
-      overflow: "auto",
-      // 滚到卡片尽头时别让滚轮继续带动整页 —— 读长解读时页面乱跑很恼人。
-      overscrollBehavior: "contain",
+      // 卡片自己不开滚动：正文是独立的滚动区，右下角还留出拉伸把手的位置。
+      overflow: "hidden",
+      display: "flex",
+      flexDirection: "column",
+      // 宽度按边框盒算，拉把手时鼠标位移和卡片边缘才对得上。
+      boxSizing: "border-box",
       padding: "10px 12px",
       font: "13px/1.6 system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif",
       color: isDark ? "#e6edf3" : "#1f2328",
@@ -680,9 +779,33 @@ try {
 
     // 正文默认按纯文本排版（"解读中…"、跳过、报错都走这条路）；
     // 渲染 Markdown 时 fillCardMarkdown 会把它翻回 normal 并逐元素套样式。
-    const content = make("div", { whiteSpace: "pre-wrap" }, body);
+    const content = make("div", {
+      whiteSpace: "pre-wrap",
+      // 正文自己滚：把卡片拉小时文字按需滚动，而不是把标题栏顶出视野。
+      flex: "1 1 auto",
+      minHeight: "0",
+      overflow: "auto",
+      // 滚到卡片尽头时别让滚轮继续带动整页 —— 读长解读时页面乱跑很恼人。
+      overscrollBehavior: "contain",
+    }, body);
+    // 右下角斜纹把手：没有文字标签，也不占正文空间，一眼能看出能拖。
+    const handle = make("div", {
+      position: "absolute",
+      right: "2px",
+      bottom: "2px",
+      width: "14px",
+      height: "14px",
+      cursor: "nwse-resize",
+      touchAction: "none",
+      borderRadius: "3px",
+      // 淡一点：它压在正文的右下角上，太实会盖住最后一行的尾巴。
+      opacity: "0.55",
+      background: `repeating-linear-gradient(-45deg, transparent 0 3px, ${isDark ? "#6e7681" : "#afb8c1"} 3px 4px)`,
+    });
+    handle.title = "拖动调整大小";
     shell.appendChild(bar);
     shell.appendChild(content);
+    shell.appendChild(handle);
 
     if (position === "fixed") {
       // 固定在右下角：钉住不动，读长文时不会随选区乱跑。
@@ -695,7 +818,13 @@ try {
       shell.style.left = `${String(left)}px`;
       shell.style.top = `${String(Math.max(12, Math.min(window.innerHeight - 120, below)))}px`;
     }
+    if (cardSize !== null) {
+      // 上次拉出来的高度：上限交给窗口，别让卡片比屏幕还高。
+      shell.style.height = `${String(Math.max(MIN_CARD_HEIGHT, Math.min(cardSize.height, window.innerHeight - 24)))}px`;
+      shell.style.maxHeight = "none";
+    }
     enableDrag(shell, bar);
+    enableResize(shell, handle);
     document.documentElement.appendChild(shell);
     // 位置是按「卡片大概 120px 高」估出来的。真的挂上去量一次，长解读别探出视口。
     if (position !== "fixed") nudgeIntoView(shell, anchorRect);
@@ -837,7 +966,23 @@ try {
     } finally {
       if (timer !== null) window.clearTimeout(timer);
       busy = false;
+      flushPendingAuto();
     }
+  }
+
+  /**
+   * 上一次解读跑完，把等在那里的选区补发出去。
+   *
+   * 补发前重判一次状态：这期间用户可能已经把卡片关了、取消钉住、或者把侧栏收起来 ——
+   * 那就不该凭空再冒出一张卡片。
+   */
+  function flushPendingAuto() {
+    const next = pendingAuto;
+    pendingAuto = null;
+    if (next === null) return;
+    if (!autoInterpretWanted()) return;
+    if (isOrphaned() || panelUnavailable()) return;
+    void interpret(next.text, next.rect);
   }
 
   // ---- 侧栏开合状态 ----
@@ -861,6 +1006,34 @@ try {
    */
   function panelUnavailable() {
     return sidebarOnly() && !panelOpen;
+  }
+
+  /**
+   * 这次划词该不该「划完就解读」。
+   *
+   * 只有两种状态会这样，都是用户自己表示过「我现在就在看这个」：
+   *   1. 卡片被钉住 —— 卡片本来就在看，划新词自然是要就地换内容；
+   *   2. 侧栏正开着 —— 人就在面板前等着接结果，再点一次浮标纯属多余。
+   * 其余一切情况仍然只弹浮标：自动解读会让每一次划词都变成一次模型调用，
+   * 而选词是读网页时最频繁的动作。
+   */
+  function autoInterpretWanted() {
+    if (cardPinned && card !== null) return true;
+    return panelOpen;
+  }
+
+  /** 选区落在文本框/可编辑区里：那是在改字，不是想让人解读这段话。 */
+  function selectionInEditable() {
+    try {
+      const selection = window.getSelection();
+      const node = selection?.anchorNode ?? null;
+      if (node === null) return false;
+      const el = node.nodeType === 1 ? node : node.parentElement;
+      if (el === null || el === undefined || typeof el.closest !== "function") return false;
+      return el.closest("input, textarea, [contenteditable]") !== null;
+    } catch {
+      return false;
+    }
   }
 
   // ---- 事件 ----
@@ -991,10 +1164,24 @@ try {
         tracePanelSkipOnce();
         return;
       }
+      if (autoInterpretWanted()) {
+        // 在输入框里划词多半是在改字，别顺手烧一次模型调用。
+        if (selectionInEditable()) {
+          clearBubble();
+          return;
+        }
+        clearBubble();
+        if (busy) {
+          // 上一个还在跑：记下最新的，等它回来补发。丢掉这次会让人以为「划了没反应」。
+          pendingAuto = { text: selection.text, rect: selection.rect };
+          return;
+        }
+        void interpret(selection.text, selection.rect);
+        return;
+      }
       // 解析中不弹浮标（省得点了一个正在跑的东西）。
       if (busy) return;
-      // 只弹浮标 —— 请求要等用户点它才发。这是刻意保留的一步：自动解读会让
-      // 每一次划词都变成一次模型调用，token 消耗完全不受控。
+      // 剩下的情况只弹浮标 —— 请求要等用户点它才发。
       showBubble(selection);
     }, SETTLE_MS);
   }

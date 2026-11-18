@@ -59,7 +59,7 @@ globalThis.chrome = {
     id: "test-ext",
     onMessage: { addListener: (fn) => env.panelListeners.push(fn) },
     sendMessage: async (m) => {
-      if (m?.type === "panel-state-query") return { open: true };
+      if (m?.type === "panel-state-query") return { open: false };
       env.sent.push(m);
       return { ok: true, text: "ANSWER" };
     },

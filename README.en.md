@@ -10,7 +10,14 @@
 
 Select text and a small badge appears (label configurable, default "解读"). **Nothing is sent until you click it** — then the **selection text + page URL + title** go to your local dsh and the answer is rendered as Markdown.
 
-**Only the badge click triggers a model call. Selecting text costs no tokens.** An interpretation is a model request, so auto-interpreting would burn one on every selection; that step is deliberately kept manual.
+**By default only the badge click triggers a model call. Selecting text costs no tokens.** An interpretation is a model request, so auto-interpreting would burn one on every selection; that step is deliberately kept manual.
+
+There are exactly two exceptions, both of which mean you already said "I am looking at this right now":
+
+- **the card is pinned** — a new selection updates that same card in place, no badge click needed;
+- **the side panel is open** — you are sitting in front of the panel waiting for results, so the selection goes straight to dsh (`click` pops a page card, `click-sidebar` writes to the panel).
+
+Outside those two states a selection only ever shows the badge. Selections inside inputs or text areas do not count — you are probably editing text, not asking for a reading.
 
 Two ways to show the result:
 
@@ -23,7 +30,9 @@ The old `auto` / `auto-sidebar` modes are gone; stale values in storage are norm
 
 The badge always follows the latest selection and never stacks up. The floating card can either follow the selection or stay pinned to the bottom-right. Answers in that card are **rendered as Markdown** as well, with inline styles so the page's CSS cannot interfere.
 
-The 📌 button in the card's title bar pins it: clicking elsewhere no longer dismisses it, and the next selection plus badge click **updates that same card in place** (no new card, no jumping position), with a brief border flash so you notice the swap. Hold the title bar (the `⠿` grip) to drag the card anywhere — **dragging pins it automatically**: moving the card by hand means you want to keep it.
+The 📌 button in the card's title bar pins it: clicking elsewhere no longer dismisses it, and the next selection **updates that same card in place** (no new card, no jumping position), with a brief border flash so you notice the swap. Hold the title bar (the `⠿` grip) to drag the card anywhere — **dragging pins it automatically**: moving the card by hand means you want to keep it.
+
+The hatched handle in the bottom-right corner **resizes** the card (both width and height); the body scrolls inside its own box. The size you drag out is remembered and reused by the next card — your reading width rarely changes, so there is no point re-dragging it for every selection.
 
 The `⧉` button on the title bar copies the current answer as plain text (the icon turns into `✓`). Scrolling to the end of the card does not drag the whole page along.
 
@@ -202,7 +211,7 @@ cd dsh-insight
 node tests/run.mjs      # or: npm test
 ```
 
-`tests/` holds 21 self-contained suites (17 of them report assertion counts, **332** in total; 2 need an installed dsh and SKIP otherwise) covering manual-only triggering, the sidebar-open gate, the orphaned-content-script guard, panel views and follow-ups, Markdown rendering, the options page, presets, capture redaction and the installer's target layout.
+`tests/` holds 21 self-contained suites (17 of them report assertion counts, **350** in total; 2 need an installed dsh and SKIP otherwise) covering manual-only triggering, the sidebar-open gate, the orphaned-content-script guard, panel views and follow-ups, Markdown rendering, the options page, presets, capture redaction and the installer's target layout.
 
 Each suite ships its own DOM / chrome API stubs and imports repository sources directly — no build step. `test-host-mt` and `test-presets` exercise `host/insight.js` and need dsh's `@deepseek-ai/dsh-llm` to resolve; in a bare clone they print `SKIP` and count as skipped rather than failing.
 
