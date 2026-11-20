@@ -391,5 +391,33 @@ check("文本框里划词：不自动解读", env.sent.length === sentBeforeEdit
 check("文本框里划词：也不弹浮标", env.appended.length === 0, String(env.appended.length));
 await setPanel(false);
 
+// 13) 浮标长在指针头顶上：松手那一刻光标就在选区末尾，按钮跟着它走
+await reset(); await setMode({ insight_mode: "click", insight_position: "auto" });
+select("pointer anchor");
+env.fire("mouseup", { clientX: 295, clientY: 222 });
+await tick(400);
+const pBadge = env.appended[0];
+// 宽度等挂上去才量得准（桩里 offsetWidth 为 0，走「26 + 字数×13」的估算）
+check("浮标：水平居中在指针上", pBadge.style.left === "269px", String(pBadge.style.left));
+check("浮标：落在指针上方", pBadge.style.top === "188px", String(pBadge.style.top));
+check("浮标：摆好之后才显形", pBadge.style.visibility === "", String(pBadge.style.visibility));
+
+// 14) 指针贴着视口顶：上面放不下就翻到下面，别只露半截
+await reset();
+env.selection = { isCollapsed: false, toString: () => "top edge",
+  getRangeAt: () => ({ getBoundingClientRect: () => ({ left: 100, right: 300, top: 20, bottom: 40, width: 200, height: 20 }) }) };
+env.fire("mouseup", { clientX: 295, clientY: 40 });
+await tick(400);
+const topBadge = env.appended[0];
+check("浮标：顶部放不下就翻到指针下方", topBadge.style.top === "48px", String(topBadge.style.top));
+
+// 15) 键盘选词：指针还停在上一处，浮标回到选区，别追着指针跑到页面另一头
+await reset();
+select("keyboard");
+env.fire("keyup", { key: "ArrowRight" });
+await tick(400);
+const kBadge = env.appended[0];
+check("键盘选词：浮标按选区摆，不跟指针", kBadge.style.left === "274px", String(kBadge.style.left));
+
 console.log(`\n结果：${pass} 通过 / ${fail} 失败`);
 process.exit(fail === 0 ? 0 : 1);

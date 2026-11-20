@@ -36,6 +36,8 @@ The hatched handle in the bottom-right corner **resizes** the card (both width a
 
 The `⧉` button on the title bar copies the current answer as plain text (the icon turns into `✓`). Scrolling to the end of the card does not drag the whole page along.
 
+The badge appears **right above the pointer** — at mouse-up the cursor sits at the end of the selection, so the button grows above it and your eyes never have to hunt for it; if there is no room above (pointer near the top of the viewport) it flips below. Keyboard selections (`Shift`+arrows, `Cmd+A`) leave the pointer elsewhere, so the badge falls back to the selection box instead of jumping across the page.
+
 The badge itself is tuned for hands: it highlights on hover, double-click word selection or triple-click paragraph selection will not fire a request, it disappears on page scroll, and it fades out after 3 seconds of neglect (the countdown pauses while the pointer is on it).
 
 **When the side panel is closed, the sidebar-only `click-sidebar` mode shows no badge and interprets nothing** — there is nowhere to show the result, so firing a model call would be pointless. The page-card mode is unaffected: its result is drawn on the page and never needed the side panel.
@@ -211,7 +213,7 @@ cd dsh-insight
 node tests/run.mjs      # or: npm test
 ```
 
-`tests/` holds 21 self-contained suites (17 of them report assertion counts, **350** in total; 2 need an installed dsh and SKIP otherwise) covering manual-only triggering, the sidebar-open gate, the orphaned-content-script guard, panel views and follow-ups, Markdown rendering, the options page, presets, capture redaction and the installer's target layout.
+`tests/` holds 21 self-contained suites (17 of them report assertion counts, **355** in total; 2 need an installed dsh and SKIP otherwise) covering manual-only triggering, the sidebar-open gate, the orphaned-content-script guard, panel views and follow-ups, Markdown rendering, the options page, presets, capture redaction and the installer's target layout.
 
 Each suite ships its own DOM / chrome API stubs and imports repository sources directly — no build step. `test-host-mt` and `test-presets` exercise `host/insight.js` and need dsh's `@deepseek-ai/dsh-llm` to resolve; in a bare clone they print `SKIP` and count as skipped rather than failing.
 

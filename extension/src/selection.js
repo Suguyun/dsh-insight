@@ -118,6 +118,9 @@ try {
   // 固定位置时统一留的边距。
   const FIXED_MARGIN = 16;
 
+  // 浮标和指针之间留的空当：贴太紧会被光标自己盖住，也容易误触。
+  const BADGE_GAP = 8;
+
   // 浮标没人理会多久自动收起。参考实现是 2 秒，我们放宽一点 —— 它几乎是唯一的触发口。
   const BADGE_IDLE_MS = 3000;
 
@@ -405,6 +408,47 @@ try {
 
   // ---- 浮标 ----
 
+  /**
+   * 指针是不是「就在这次选区旁边」。
+   *
+   * 鼠标划词时松手的那一点必然贴着选区（在末尾或开头），可以放心让浮标追着它走。
+   * 但键盘选词（Shift+方向键、Ctrl+A）时指针还停在页面别处，跟着它跑会把浮标
+   * 扔到离文字很远的地方 —— 那种情况返回 null，交回选区坐标。
+   */
+  function pointerAnchor(rect) {
+    if (lastPointer === null) return null;
+    const x = Number(lastPointer.x);
+    const y = Number(lastPointer.y);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+    const pad = 24;
+    const near =
+      x >= rect.left - pad && x <= rect.right + pad && y >= rect.top - pad && y <= rect.bottom + pad;
+    return near ? { x, y } : null;
+  }
+
+  /**
+   * 把浮标摆在指针上方。
+   *
+   * 松手那一刻光标正落在选区的末尾，按钮长在它头顶上，眼睛不用回头去找。
+   * 上面放不下（指针贴着视口顶）就翻到下面 —— 露出一半比换个方向更难看。
+   */
+  function placeBubble(button, rect) {
+    // offsetWidth 是整数、且不受 transform 影响，量出来就能直接算居中。
+    const width = button.offsetWidth || 26 + label.length * 13;
+    const height = button.offsetHeight || 26;
+    const anchor = pointerAnchor(rect);
+    const left = anchor === null
+      // 键盘选词：按选区右端居中，和以前一样。
+      ? rect.right - width / 2
+      : anchor.x - width / 2;
+    button.style.left = `${String(Math.max(8, Math.min(window.innerWidth - width - 8, left)))}px`;
+    const above = (anchor === null ? rect.top : anchor.y) - height - BADGE_GAP;
+    const top = above >= 8
+      ? above
+      : Math.min(window.innerHeight - height - 8, (anchor === null ? rect.bottom : anchor.y) + BADGE_GAP);
+    button.style.top = `${String(Math.max(8, top))}px`;
+  }
+
   function showBubble(selection) {
     clearBubble();
     const isDark = dark();
@@ -433,15 +477,8 @@ try {
       button.style.right = `${String(FIXED_MARGIN)}px`;
       button.style.bottom = `${String(FIXED_MARGIN)}px`;
     } else {
-      // 按钮宽度随文字变化，所以靠右对齐时留出一点余量。
-      const estimated = 26 + label.length * 13;
-      const left = Math.max(
-        8,
-        Math.min(window.innerWidth - estimated, selection.rect.right - estimated / 2),
-      );
-      const top = selection.rect.top > 40 ? selection.rect.top - 32 : selection.rect.bottom + 8;
-      button.style.left = `${String(left)}px`;
-      button.style.top = `${String(Math.max(8, top))}px`;
+      // 宽度要等挂上去才量得准（文字长度不定），先藏起来，量完再摆。
+      button.style.visibility = "hidden";
     }
     button.addEventListener("mousedown", (event) => {
       // 别让点击清掉选区。
@@ -472,6 +509,10 @@ try {
       void interpret(selection.text, selection.rect);
     });
     document.documentElement.appendChild(button);
+    if (position !== "fixed") {
+      placeBubble(button, selection.rect);
+      button.style.visibility = "";
+    }
     bubble = button;
     armBubbleTimer(button);
   }
